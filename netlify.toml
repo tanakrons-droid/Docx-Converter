@@ -1,0 +1,73 @@
+# ========================================
+# Netlify Configuration File
+# โปรเจค: docx-to-code-converter
+# ========================================
+
+[build]
+  # คำสั่งที่ใช้ build โปรเจค (React)
+  command = "npm run build"
+
+  # โฟลเดอร์ที่จะ deploy (ผลลัพธ์จาก build)
+  publish = "build"
+
+  # โฟลเดอร์ที่เก็บ Netlify Functions (Serverless Functions)
+  functions = "netlify/functions"
+
+# ========================================
+# Redirects & Rewrites
+# ========================================
+# สำหรับ Single Page Application (React Router)
+# ทำให้ทุก route ที่ไม่ใช่ไฟล์จริงจะ redirect ไปที่ index.html
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# ========================================
+# Functions Configuration
+# ========================================
+[functions]
+  # กำหนด directory สำหรับ functions
+  directory = "netlify/functions"
+
+  # External node modules ที่อนุญาตให้ใช้
+  # (node-fetch ใช้ใน resolve-url.js)
+  node_bundler = "esbuild"
+
+# ========================================
+# Headers Configuration
+# ========================================
+# กำหนด CORS headers สำหรับทุก response
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # CORS - อนุญาตให้ทุกโดเมนเรียกใช้ API
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Accept, Authorization"
+
+    # Security Headers
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+    # Cache Control สำหรับ static assets
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# CORS headers สำหรับ Functions
+[[headers]]
+  for = "/.netlify/functions/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "GET, POST, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Accept"
+
+# ========================================
+# Environment Variables (ตัวอย่าง)
+# ========================================
+# ตั้งค่าใน Netlify Dashboard → Site Settings → Environment Variables
+#
+# ตัวอย่าง:
+# - NODE_VERSION=18
+# - REACT_APP_API_URL=https://your-site.netlify.app/.netlify/functions
+
