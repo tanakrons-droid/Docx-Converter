@@ -2628,7 +2628,7 @@ ${closeComment}`;
         // ลบ separator ท้ายสุดสำหรับเว็บไซต์ที่ไม่ต้องการ separator
         const websitesWithoutSeparator = ['vsquareclinic.co', 'vsq-injector.com', 'vsquare.clinic', 'drvsquare.com', 'doctorvsquareclinic.com', 'bestbrandclinic.com', 'monghaclinic.com'];
         if (websitesWithoutSeparator.includes(selectedWebsite)) {
-          htmlString = htmlString.replace(/<!-- wp:separator -->\s*<hr class="wp-block-separator[^"]*"\/?>\s*<!-- \/wp:separator -->\s*$/gi, '');
+          htmlString = htmlString.replace(/\n*<!-- wp:separator -->\n*<hr class="wp-block-separator[^"]*"\s*\/?>\n*<!-- \/wp:separator -->\s*$/gi, '');
         }
 
         // ล้างฟอร์แมตแปลกๆ อัตโนมัติก่อนแสดงผล (Clear Unknown Formatting)
