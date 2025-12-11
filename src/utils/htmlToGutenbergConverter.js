@@ -4254,17 +4254,14 @@ export function convert(inputHtml, options = {}) {
 
     // Step 4b: For bestbrandclinic.com, convert phone numbers in <u> tags to tel: links
     if (options.website === 'bestbrandclinic.com') {
-      const $phone = cheerio.load(processedHtml, { decodeEntities: false });
-      $phone('u').each((_, el) => {
-        const $u = $phone(el);
-        const text = $u.text().trim();
-        // Match Thai phone number patterns: XXX-XXX-XXXX, XX-XXX-XXXX, etc.
-        if (/^\d{2,4}[-\s]?\d{3,4}[-\s]?\d{4}$/.test(text)) {
-          const cleanPhone = text.replace(/[-\s]/g, '');
-          $u.replaceWith(`<a href="tel:${cleanPhone}">${text}</a>`);
+      // Use regex on HTML string directly to avoid Cheerio adding html/body wrapper
+      processedHtml = processedHtml.replace(
+        /<u[^>]*>(\d{2,4}[-\s]?\d{3,4}[-\s]?\d{4})<\/u>/gi,
+        (match, phoneNumber) => {
+          const cleanPhone = phoneNumber.replace(/[-\s]/g, '');
+          return `<a href="tel:${cleanPhone}">${phoneNumber}</a>`;
         }
-      });
-      processedHtml = $phone.html();
+      );
     }
 
     // Step 5: Convert to Gutenberg
