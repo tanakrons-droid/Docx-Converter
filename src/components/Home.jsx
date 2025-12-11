@@ -2537,6 +2537,15 @@ ${columnsHTML}
           // รองรับ: <u>, <u style="...">, <u class="..."> ฯลฯ
           htmlString = htmlString.replace(/<a\s+([^>]*)>(\s*)<u[^>]*>([\s\S]*?)<\/u>(\s*)<\/a>/gi, '<a $1>$2$3$4</a>');
           
+          // แปลงเบอร์โทรศัพท์ที่อยู่ใน <u> tag เป็น tel: link
+          htmlString = htmlString.replace(
+            /<u[^>]*>(\d{2,4}[-\s]?\d{3,4}[-\s]?\d{4})<\/u>/gi,
+            (match, phoneNumber) => {
+              const cleanPhone = phoneNumber.replace(/[-\s]/g, '');
+              return `<a href="tel:${cleanPhone}">${phoneNumber}</a>`;
+            }
+          );
+          
           // จับประโยคจัดกลางที่อยู่เหนือ Alt : และย้ายไปเป็น caption ของ image block
           // Pattern: <!-- wp:image --> ... <!-- /wp:image --> ตามด้วย paragraph จัดกลาง ตามด้วย paragraph ที่มี Alt :
           // แปลงเป็น: <!-- wp:image --> พร้อม figcaption
