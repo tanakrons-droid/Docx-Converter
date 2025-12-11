@@ -4252,6 +4252,21 @@ export function convert(inputHtml, options = {}) {
     policiesTriggered = policyResult.triggered;
     warnings.push(...policyResult.warnings);
 
+    // Step 4b: For bestbrandclinic.com, convert phone numbers in <u> tags to tel: links
+    if (options.website === 'bestbrandclinic.com') {
+      const $phone = cheerio.load(processedHtml, { decodeEntities: false });
+      $phone('u').each((_, el) => {
+        const $u = $phone(el);
+        const text = $u.text().trim();
+        // Match Thai phone number patterns: XXX-XXX-XXXX, XX-XXX-XXXX, etc.
+        if (/^\d{2,4}[-\s]?\d{3,4}[-\s]?\d{4}$/.test(text)) {
+          const cleanPhone = text.replace(/[-\s]/g, '');
+          $u.replaceWith(`<a href="tel:${cleanPhone}">${text}</a>`);
+        }
+      });
+      processedHtml = $phone.html();
+    }
+
     // Step 5: Convert to Gutenberg
     let { html: gutenbergHtml, blockCount } = convertToGutenberg(processedHtml, options.website);
 
@@ -4274,23 +4289,12 @@ export function convert(inputHtml, options = {}) {
       );
     }
     
-    // Step 7c: For bestbrandclinic.com, special processing
+    // Step 7c: For bestbrandclinic.com, remove separator after last paragraph of summary section
     if (options.website === 'bestbrandclinic.com') {
       // Remove separator that appears after the last paragraph block at the end
       gutenbergHtml = gutenbergHtml.replace(
         /(<!-- \/wp:paragraph -->\s*)\n*<!-- wp:separator -->\s*<hr class="wp-block-separator[^"]*"\s*\/?>\s*<!-- \/wp:separator -->(\s*)$/gi,
         '$1$2'
-      );
-      
-      // Convert phone numbers wrapped in <u> tags to clickable tel: links
-      // Pattern: <u>XXX-XXX-XXXX</u> or <u style="...">XXX-XXX-XXXX</u>
-      gutenbergHtml = gutenbergHtml.replace(
-        /<u[^>]*>(\d{2,4}[-\s]?\d{3,4}[-\s]?\d{4})<\/u>/gi,
-        (match, phoneNumber) => {
-          // Remove dashes and spaces for tel: href
-          const cleanPhone = phoneNumber.replace(/[-\s]/g, '');
-          return `<a href="tel:${cleanPhone}">${phoneNumber}</a>`;
-        }
       );
     }
     
