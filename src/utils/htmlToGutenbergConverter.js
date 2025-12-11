@@ -4274,6 +4274,26 @@ export function convert(inputHtml, options = {}) {
       );
     }
     
+    // Step 7c: For bestbrandclinic.com, special processing
+    if (options.website === 'bestbrandclinic.com') {
+      // Remove separator that appears after the last paragraph block at the end
+      gutenbergHtml = gutenbergHtml.replace(
+        /(<!-- \/wp:paragraph -->\s*)\n*<!-- wp:separator -->\s*<hr class="wp-block-separator[^"]*"\s*\/?>\s*<!-- \/wp:separator -->(\s*)$/gi,
+        '$1$2'
+      );
+      
+      // Convert phone numbers wrapped in <u> tags to clickable tel: links
+      // Pattern: <u>XXX-XXX-XXXX</u> or <u style="...">XXX-XXX-XXXX</u>
+      gutenbergHtml = gutenbergHtml.replace(
+        /<u[^>]*>(\d{2,4}[-\s]?\d{3,4}[-\s]?\d{4})<\/u>/gi,
+        (match, phoneNumber) => {
+          // Remove dashes and spaces for tel: href
+          const cleanPhone = phoneNumber.replace(/[-\s]/g, '');
+          return `<a href="tel:${cleanPhone}">${phoneNumber}</a>`;
+        }
+      );
+    }
+    
     // Step 8: Add website-specific footer
     if (options.website) {
       const footer = getWebsiteFooter(options.website);
