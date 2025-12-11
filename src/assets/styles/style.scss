@@ -116,7 +116,7 @@ body {
     display: flex;
     justify-content: center;
     align-items: center;
-    gap: 100px;
+    gap: 40px;
 }
 .nav-list li {
     position: relative;
@@ -131,7 +131,7 @@ body {
     content: "";
     position: absolute;
     top: 50%;
-    left: -50px;
+    left: -20px;
     width: 2px;
     height: 26px;
     background-color: #404040;
@@ -645,14 +645,14 @@ h1 span {
         top: get-vw-nb(13px);
     }    
     .nav-list {
-        gap: get-vw-nb(100px);
+        gap: get-vw-nb(40px);
     }
     .nav-list li {
         font-size: get-vw-nb(20px);
         padding: get-vw-nb(15px) 0;
     }
     .nav-list li:before {
-        left: get-vw-nb(-50px);
+        left: get-vw-nb(-20px);
         width: get-vw-nb(2px);
         height: get-vw-nb(26px);
     }

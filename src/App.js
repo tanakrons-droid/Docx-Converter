@@ -4,6 +4,7 @@ import './App.css';
 import './assets/styles/style.css';
 import Home from './components/Home';
 import Html from './components/Html';
+import HtmlToGutenberg from './components/HtmlToGutenberg';
 import BBCode from './components/Bbcode';
 import BBCodeV1 from './components/Bbcodev1';
 import Content from './components/Content';
@@ -57,7 +58,6 @@ const App = () => {
       <Router>
         <header className="header">
           <div className="header-logo">
-            <span>CONVERT TO</span>
           </div>
           <div className="header-toggle">
             <button className={`btn-nav-toggle ${isActive ? 'active' : ''}`} onClick={handleClick}>
@@ -82,6 +82,12 @@ const App = () => {
                 </NavLink>
               </li>
               <li>
+                <NavLink to="/html-to-gutenberg" className={({ isActive }) => isActive ? 'active' : ''} onClick={() => setIsActive(!isActive)}>
+                  <span className="nav-icon">🔄</span>
+                  <span className="nav-text">HTML to GB</span>
+                </NavLink>
+              </li>
+              <li>
                 <NavLink to="/bbcode" className={({ isActive }) => isActive ? 'active' : ''} onClick={() => setIsActive(!isActive)}>
                   <span className="nav-icon">💬</span>
                   <span className="nav-text">BBCode</span>
@@ -90,7 +96,7 @@ const App = () => {
               <li>
                 <NavLink to="/bbcode-v1" className={({ isActive }) => isActive ? 'active' : ''} onClick={() => setIsActive(!isActive)}>
                   <span className="nav-icon">📝</span>
-                  <span className="nav-text">BBCode v1.0</span>
+                  <span className="nav-text">BBCode v1</span>
                 </NavLink>
               </li>
               <li>
@@ -134,6 +140,7 @@ const App = () => {
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/html" element={<Html />} />
+            <Route path="/html-to-gutenberg" element={<HtmlToGutenberg />} />
             <Route path="/bbcode" element={<BBCode />} />
             <Route path="/bbcode-v1" element={<BBCodeV1 />} />
             <Route path="/content" element={<Content />} />

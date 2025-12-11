@@ -1,0 +1,118 @@
+# Policy Configuration for HTML to Gutenberg Converter
+# =====================================================
+# This file defines which policies are enabled and their options
+
+# Conversion mode: 'strict' or 'relaxed'
+# - strict: fails if any policy check fails
+# - relaxed: auto-fixes issues and continues with warnings
+mode: relaxed
+
+# Keep original CSS classes in output HTML
+keepClasses: false
+
+# Inline CSS styles into elements
+inlineStyles: true
+
+# Output format: 'html' or 'json'
+outputFormat: html
+
+# Policy Configurations
+# ---------------------
+policies:
+  # Remove internal notes, comments, team messages
+  removeInternalNotes:
+    enabled: true
+    options:
+      # Automatically remove internal notes
+      autoRemove: true
+      # Remove container elements that become empty after text removal
+      removeEmptyContainers: true
+      # Patterns to detect as internal notes (regex strings, case-insensitive)
+      patterns:
+        # Pattern 1: [a], [b], [c], etc. with descriptive text (internal notes)
+        - '^\\[([a-z0-9])\\]\\s*'
+        # Pattern 2: To Team Web:, To Team Design: (team instructions)
+        - '^(To\\s+Team\\s+\\w+\\s*:)'
+        # Pattern 3: @ mentions like @thitikron... (comments)
+        - '^\\s*@\\w+'
+        # Pattern 4: Standalone graphic notes (กราฟิก, Graphic, Image, etc.)
+        - '^(กราฟิก|Graphic|Image|GRAPHIC|IMAGE)'
+        # Pattern 5: Internal notes in parentheses
+        - '^\\(\\s*(ฝาก|Note:|Internal:|TODO:|FIXME:)'
+        # Pattern 6: Alt: alt text patterns (from Google Docs images)
+        - '^(Alt|alt|ALT)\\s*:'
+        # Pattern 7: NOTE SEO Writer (end marker for content)
+        - '^(NOTE\\s+SEO\\s+Writer|NOTE\\s+SEO|note\\s+seo)'
+        # Pattern 8: Graphics/Images with credit information
+        - '^(กราฟิก Zip|ราคากราฟิก|Credit|เครดิต)'
+        # Pattern 9: Landing URL patterns
+        - '^(Landing\\s*:|Link\\s*:|URL\\s*:)'
+        # Pattern 10: Writer notes with square brackets and keywords
+        - '^\\[.*?(ฝาก|Note|Internal|TODO|ทีม|Team)'
+
+  # Remove forbidden HTML tags (security)
+  forbiddenTags:
+    enabled: true
+    options:
+      # Tags to remove completely
+      tags:
+        - script
+        - iframe
+        - object
+        - embed
+        - form
+        - input
+        - button
+      # Automatically remove forbidden tags
+      autoRemove: true
+      # Keep content when removing tags (false = remove content too)
+      keepContent: false
+
+  # Remove all content before first H1 heading
+  removeBeforeH1:
+    enabled: true
+    options:
+      # Automatically remove content before H1
+      autoRemove: true
+
+  # Require minimum H2 headings
+  requireH2:
+    enabled: true
+    options:
+      # Minimum number of H2 headings required
+      minCount: 1
+      # Auto-generate headings if missing
+      autoGenerate: false
+      # Default text for auto-generated headings
+      defaultHeadingText: "หัวข้อ"
+
+  # Require minimum images
+  minImageCount:
+    enabled: false
+    options:
+      # Minimum number of images required
+      minCount: 1
+      # Auto-insert placeholder if missing
+      autoInsertPlaceholder: false
+      # Placeholder image URL
+      placeholderUrl: "https://via.placeholder.com/800x400?text=Image+Placeholder"
+      # Placeholder alt text
+      placeholderAlt: "รูปภาพประกอบบทความ"
+
+  # Auto-add disclaimer for promotional content
+  addDisclaimer:
+    enabled: true
+    options:
+      # Keywords that trigger disclaimer
+      keywords:
+        - โปรโมชั่น
+        - ส่วนลด
+        - ราคาพิเศษ
+        - ข้อเสนอพิเศษ
+        - promotion
+        - discount
+        - special offer
+      # Where to insert disclaimer: 'start', 'end', or 'after-keyword'
+      position: end
+      # Custom disclaimer HTML (optional)
+      # disclaimerHtml: "<div class='disclaimer'>...</div>"

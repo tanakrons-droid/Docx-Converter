@@ -11,12 +11,14 @@
     "@testing-library/jest-dom": "^5.17.0",
     "@testing-library/react": "^13.4.0",
     "@testing-library/user-event": "^13.5.0",
+    "cheerio": "^1.0.0",
     "docx": "^8.5.0",
     "docxtemplater": "^3.48.0",
     "file-saver": "^2.0.5",
     "jszip": "^3.10.1",
     "jszip-utils": "^0.1.0",
     "mammoth": "^1.8.0",
+    "node-fetch": "^2.7.0",
     "piz": "^0.0.0",
     "pizzip": "^3.1.7",
     "react": "^18.3.1",
@@ -27,8 +29,7 @@
     "react-scripts": "5.0.1",
     "react-syntax-highlighter": "^15.5.0",
     "util": "^0.12.5",
-    "web-vitals": "^2.1.4",
-    "node-fetch": "^2.7.0"
+    "web-vitals": "^2.1.4"
   },
   "scripts": {
     "start": "react-app-rewired start",

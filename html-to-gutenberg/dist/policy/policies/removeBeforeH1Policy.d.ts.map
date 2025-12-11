@@ -1,0 +1,1 @@
+{"version":3,"file":"removeBeforeH1Policy.d.ts","sourceRoot":"","sources":["../../../src/policy/policies/removeBeforeH1Policy.ts"],"names":[],"mappings":"AAAA;;;GAGG;AAGH,OAAO,KAAK,EAAE,MAAM,EAAE,aAAa,EAAgB,MAAM,aAAa,CAAC;AAGvE,MAAM,WAAW,2BAA4B,SAAQ,aAAa;IAChE,+CAA+C;IAC/C,UAAU,CAAC,EAAE,OAAO,CAAC;CACtB;AAMD;;GAEG;AACH,eAAO,MAAM,oBAAoB,EAAE,MA8DlC,CAAC"}

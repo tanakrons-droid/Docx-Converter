@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+﻿import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import mammoth from 'mammoth';
 import { Helmet, HelmetProvider } from 'react-helmet-async';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -119,7 +119,14 @@ function Home() {
     'vsquareconsult.com',
     'vsquare-under-eye.com',
     'vsquareclinic.co',
-    'vsq-injector.com'
+    'vsq-injector.com',
+    'vsquare.clinic',
+    'drvsquare.com',
+    'en.vsquareclinic.com',
+    'cn.vsquareclinic.com',
+    'doctorvsquareclinic.com',
+    'bestbrandclinic.com',
+    'monghaclinic.com'
   ], []);
 
   // Close dropdown when clicking outside
@@ -375,11 +382,15 @@ function Home() {
         const options = {
   styleMap: [
     "u => u",
-    "r[style-name*='Underline'] => u"
+    "r[style-name*='Underline'] => u",
+    // Alignment styles
+    "p[style-name='Center'] => p.has-text-align-center",
+    "p[style-name='Centered'] => p.has-text-align-center",
+    "p[style-name='center'] => p.has-text-align-center",
+    "p[style-name='centered'] => p.has-text-align-center"
   ],
-  includeEmbeddedStyleMap: true
-
-  ,convertImage: mammoth.images.imgElement(function(image) {
+  includeEmbeddedStyleMap: true,
+  convertImage: mammoth.images.imgElement(function(image) {
     if (WP_EXPORT_MODE) return { src: "" };
     return image.read("base64").then(function(buffer) {
       var contentType = image.contentType || "image/png";
@@ -774,37 +785,38 @@ _logStage('mammoth.convertToHtml()', (result && result.value) || '(no value)');
         });
 
         if (articleStart) {
-          
-          const _nextEl = (articleStart && articleStart.nextElementSibling) ? articleStart.nextElementSibling : null;
-          const _isNextTable = _nextEl && _nextEl.tagName && _nextEl.tagName.toLowerCase() === 'table';
-          if (_isNextTable) {
-            // do nothing; let heading converter handle later
-          } else {
-let previousSibling = articleStart.previousSibling;
+          // ลบเนื้อหาก่อน H1 ทั้งหมดเสมอ
+          let previousSibling = articleStart.previousSibling;
           while (previousSibling) {
             const temp = previousSibling.previousSibling;
             previousSibling.remove();
             previousSibling = temp;
           }
-          if (articleStartImg.length > 0) {
-            if (articleStartImg.length > 1) {
-              const headImgItems = Array.from(articleStartImg).map(img => {
-                const columnUniqueID = `70684_${Math.random().toString(36).substr(2, 9)}`;
-                return `<!-- wp:kadence/column {"borderWidth":["","","",""],"uniqueID":"${columnUniqueID}","borderStyle":[{"top":["","",""],"right":["","",""],"bottom":["","",""],"left":["","",""],"unit":"px"}]} -->
+          
+          const _nextEl = (articleStart && articleStart.nextElementSibling) ? articleStart.nextElementSibling : null;
+          const _isNextTable = _nextEl && _nextEl.tagName && _nextEl.tagName.toLowerCase() === 'table';
+          if (_isNextTable) {
+            // ถ้า H1 ตามด้วย table ให้ลบ H1 แต่เก็บ table ไว้ให้ heading converter จัดการ
+            articleStart.remove();
+          } else {
+            if (articleStartImg.length > 0) {
+              if (articleStartImg.length > 1) {
+                const headImgItems = Array.from(articleStartImg).map(img => {
+                  const columnUniqueID = `70684_${Math.random().toString(36).substr(2, 9)}`;
+                  return `<!-- wp:kadence/column {"borderWidth":["","","",""],"uniqueID":"${columnUniqueID}","borderStyle":[{"top":["","",""],"right":["","",""],"bottom":["","",""],"left":["","",""],"unit":"px"}]} -->
 <div class="wp-block-kadence-column kadence-column${columnUniqueID}"><div class="kt-inside-inner-col"><!-- wp:image -->
 <figure class="wp-block-image"><img alt=""/></figure>
 <!-- /wp:image --></div></div>
 <!-- /wp:kadence/column -->`;
-              }).join('');
-              const rowUniqueID = `70684_${Math.random().toString(36).substr(2, 9)}`;
-              articleStart.outerHTML = `<!-- wp:kadence/rowlayout {"uniqueID":"${rowUniqueID}","colLayout":"equal","kbVersion":2} -->${headImgItems}<!-- /wp:kadence/rowlayout -->`;
+                }).join('');
+                const rowUniqueID = `70684_${Math.random().toString(36).substr(2, 9)}`;
+                articleStart.outerHTML = `<!-- wp:kadence/rowlayout {"uniqueID":"${rowUniqueID}","colLayout":"equal","kbVersion":2} -->${headImgItems}<!-- /wp:kadence/rowlayout -->`;
+              } else {
+                articleStart.outerHTML = `<!-- wp:image --><figure class="wp-block-image"><img alt=""/></figure><!-- /wp:image -->`;
+              }
             } else {
-              articleStart.outerHTML = `<!-- wp:image --><figure class="wp-block-image"><img alt=""/></figure><!-- /wp:image -->`;
+              articleStart.remove(); // Remove the <h1></h1> itself
             }
-          } else {
-            articleStart.remove(); // Remove the <h1></h1> itself
-          }
-
           }
         }
 
@@ -915,7 +927,23 @@ let previousSibling = articleStart.previousSibling;
             
             // ถ้าเป็น paragraph ที่เป็นตัวเอียง และอยู่ใต้รูป/คลิป หรือมีลิงก์คลิป ให้เป็น caption-img
             if (!p.closest('table') && isItalicPara && (hasImgAbove || hasVideoAbove || hasVideoLink)) {
-              p.outerHTML = `<!-- wp:paragraph {"align":"center"} --><p class="has-text-align-center caption-img">${html}</p><!-- /wp:paragraph -->`;
+              // Extract text color from style (if not black)
+              const colorMatch = styleAttr.match(/(?:^|;)\s*color\s*:\s*([^;]+)/i);
+              const textColor = colorMatch ? colorMatch[1].trim() : null;
+              const isBlackColor = !textColor || ['#000000', '#000', 'black', 'rgb(0, 0, 0)', 'rgb(0,0,0)'].includes(textColor.toLowerCase());
+              
+              // Build caption-img block with color if available
+              let captionAttrs = '"align":"center"';
+              let captionClasses = 'has-text-align-center caption-img';
+              let captionInlineStyle = '';
+              
+              if (textColor && !isBlackColor) {
+                captionAttrs += `,"style":{"color":{"text":"${textColor}"},"elements":{"link":{"color":{"text":"${textColor}"}}}}`;
+                captionClasses += ' has-text-color has-link-color';
+                captionInlineStyle = ` style="color:${textColor}"`;
+              }
+              
+              p.outerHTML = `<!-- wp:paragraph {${captionAttrs}} --><p class="${captionClasses}"${captionInlineStyle}>${html}</p><!-- /wp:paragraph -->`;
               return;
             }
           } catch (e) {}
@@ -1459,7 +1487,7 @@ const tagImg = p.querySelectorAll('img');
               }
             } else {
               // Special heading patterns
-              if (textOnly.startsWith('Q&A') || textOnly.startsWith('Q&amp;A') || textOnly.startsWith('คำถามที่พบบ่อย') || textOnly.includes('FAQ') || (textOnly.includes('คำถาม') && textOnly.includes('คำตอบ'))) {
+              if (textOnly.startsWith('Q&A') || textOnly.startsWith('Q&amp;A') || textOnly.startsWith('คำถามที่พบบ่อย') || textOnly.includes('FAQ') || (textOnly.includes('คำถาม') && textOnly.includes('คำตอบ')) || (textOnly.startsWith('คำถาม') && textOnly.includes('ที่พบบ่อย'))) {
                 // Q&A/FAQ headings are always centered with label-heading class
                 if (level === 'h2') {
                   attrLevel = ` {"textAlign":"center","className":"label-heading"}`;
@@ -1646,8 +1674,38 @@ const tagImg = p.querySelectorAll('img');
             }
           }
           
+          // Clean link text to match heading text format (for href replacement)
+          const cleanLinkText = (text) => {
+            if (!text) return '';
+            let cleaned = text
+              .replace(/^H\s*:\s*[1-6]\s*/gi, '')  // H:2, H : 3
+              .replace(/^:\s*/gi, '')  // Leading colon
+              .replace(/1st/gi, '')
+              .replace(/(?:h\s*[1-6]|h\s+[1-6]|header\s*tag\s*[1-6]|header\s*[1-6]) ?:?\s*/gi, '')  // h2, h 2, header tag 2, header 2
+              .trim();
+            
+            // Remove leading colon again after other replacements
+            while (cleaned.startsWith(':')) {
+              cleaned = cleaned.substring(1).trim();
+            }
+            
+            return cleaned;
+          };
+          
           const newListItems = Array.from(ul.querySelectorAll('li')).map(li => {
-            return `<!-- wp:list-item --><li>${li.innerHTML}</li><!-- /wp:list-item -->`;
+            let liContent = li.innerHTML;
+            const aTag = li.querySelector('a');
+            
+            // Replace Google Docs style href with hash ID from link text
+            if (aTag && aTag.textContent && aTag.textContent.trim()) {
+              const rawLinkText = aTag.textContent.trim();
+              const cleanedLinkText = cleanLinkText(rawLinkText);
+              const newHref = generateHashId(cleanedLinkText);
+              // Replace any href (Google Docs style or other)
+              liContent = liContent.replace(/href="[^"]*"/, `href="#${newHref}"`);
+            }
+            
+            return `<!-- wp:list-item --><li>${liContent}</li><!-- /wp:list-item -->`;
           }).join('');
           
           const classAttr = classNames.length > 0 ? ` class="${classNames.join(' ')}"` : '';
@@ -1703,8 +1761,28 @@ const tagImg = p.querySelectorAll('img');
             }
           }
           
+          // Clean link text to match heading text format (for href replacement)
+          const cleanLinkText = (text) => {
+            if (!text) return '';
+            let cleaned = text
+              .replace(/^H\s*:\s*[1-6]\s*/gi, '')  // H:2, H : 3
+              .replace(/^:\s*/gi, '')  // Leading colon
+              .replace(/1st/gi, '')
+              .replace(/(?:h\s*[1-6]|h\s+[1-6]|header\s*tag\s*[1-6]|header\s*[1-6]) ?:?\s*/gi, '')  // h2, h 2, header tag 2, header 2
+              .trim();
+            
+            // Remove leading colon again after other replacements
+            while (cleaned.startsWith(':')) {
+              cleaned = cleaned.substring(1).trim();
+            }
+            
+            return cleaned;
+          };
+          
           const listItems = Array.from(ul.children).map(li => {
             const nestedUl = li.querySelector('ul');
+            const aTag = li.querySelector('a');
+            
             if (nestedUl) {
               const listSubItems = convertSubListToGutenberg(nestedUl, tag, classPrev, isDashed, hasCorrectlist);
               nestedUl.remove();
@@ -1713,6 +1791,16 @@ const tagImg = p.querySelectorAll('img');
               if (isDashed) {
                 liContent = liContent.replace(/^-\s*/, '');
               }
+              
+              // Replace Google Docs style href with hash ID from link text
+              if (aTag && aTag.textContent && aTag.textContent.trim()) {
+                const rawLinkText = aTag.textContent.trim();
+                const cleanedLinkText = cleanLinkText(rawLinkText);
+                const newHref = generateHashId(cleanedLinkText);
+                // Replace any href (Google Docs style or other)
+                liContent = liContent.replace(/href="[^"]*"/, `href="#${newHref}"`);
+              }
+              
               return `<!-- wp:list-item --><li>${liContent}${listSubItems}</li><!-- /wp:list-item -->`;
             }
             // Remove "- " prefix if it's a dashed list
@@ -1720,6 +1808,16 @@ const tagImg = p.querySelectorAll('img');
             if (isDashed) {
               liContent = liContent.replace(/^-\s*/, '');
             }
+            
+            // Replace Google Docs style href with hash ID from link text
+            if (aTag && aTag.textContent && aTag.textContent.trim()) {
+              const rawLinkText = aTag.textContent.trim();
+              const cleanedLinkText = cleanLinkText(rawLinkText);
+              const newHref = generateHashId(cleanedLinkText);
+              // Replace any href (Google Docs style or other)
+              liContent = liContent.replace(/href="[^"]*"/, `href="#${newHref}"`);
+            }
+            
             return `<!-- wp:list-item --><li>${liContent}</li><!-- /wp:list-item -->`;
           }).join('');
           
@@ -1732,12 +1830,32 @@ const tagImg = p.querySelectorAll('img');
           if(tag === 'ol') {
             tagComment = '<!-- wp:list {"ordered":true} -->';
           }
+          
+          // Clean link text to match heading text format (for href replacement)
+          const cleanLinkText = (text) => {
+            if (!text) return '';
+            let cleaned = text
+              .replace(/^H\s*:\s*[1-6]\s*/gi, '')  // H:2, H : 3
+              .replace(/^:\s*/gi, '')  // Leading colon
+              .replace(/1st/gi, '')
+              .replace(/(?:h\s*[1-6]|h\s+[1-6]|header\s*tag\s*[1-6]|header\s*[1-6]) ?:?\s*/gi, '')  // h2, h 2, header tag 2, header 2
+              .trim();
+            
+            // Remove leading colon again after other replacements
+            while (cleaned.startsWith(':')) {
+              cleaned = cleaned.substring(1).trim();
+            }
+            
+            return cleaned;
+          };
+          
           const newListItems = Array.from(ul.children).map(li => {
             let liContent = li.innerHTML;
             const aTag = li.querySelector('a');
-            if (aTag) {
-              const linkText = aTag.textContent || '';
-              const newHref = generateHashId(linkText);
+            if (aTag && aTag.textContent && aTag.textContent.trim()) {
+              const rawLinkText = aTag.textContent.trim();
+              const cleanedLinkText = cleanLinkText(rawLinkText);
+              const newHref = generateHashId(cleanedLinkText);
               liContent = liContent.replace(/href="[^"]*"/, `href="#${newHref}"`);
             }
             return `<!-- wp:list-item --><li>${liContent}</li><!-- /wp:list-item -->`;
@@ -1774,6 +1892,24 @@ const tagImg = p.querySelectorAll('img');
             }
           }
           
+          // Clean link text to match heading text format (for href replacement)
+          const cleanLinkText = (text) => {
+            if (!text) return '';
+            let cleaned = text
+              .replace(/^H\s*:\s*[1-6]\s*/gi, '')  // H:2, H : 3
+              .replace(/^:\s*/gi, '')  // Leading colon
+              .replace(/1st/gi, '')
+              .replace(/(?:h\s*[1-6]|h\s+[1-6]|header\s*tag\s*[1-6]|header\s*[1-6]) ?:?\s*/gi, '')  // h2, h 2, header tag 2, header 2
+              .trim();
+            
+            // Remove leading colon again after other replacements
+            while (cleaned.startsWith(':')) {
+              cleaned = cleaned.substring(1).trim();
+            }
+            
+            return cleaned;
+          };
+          
           const listItems = Array.from(ul.children).map(li => {
             const nestedUl = li.querySelector('ul');
             const aTag = li.querySelector('a');
@@ -1785,18 +1921,20 @@ const tagImg = p.querySelectorAll('img');
               nestedUl.remove();
               // Now get content and fix link
               let liContent = li.innerHTML;
-              if (aTag && aTag.textContent) {
-                const linkText = aTag.textContent;
-                const newHref = generateHashId(linkText);
+              if (aTag && aTag.textContent && aTag.textContent.trim()) {
+                const rawLinkText = aTag.textContent.trim();
+                const cleanedLinkText = cleanLinkText(rawLinkText);
+                const newHref = generateHashId(cleanedLinkText);
                 liContent = liContent.replace(/href="[^"]*"/, `href="#${newHref}"`);
               }
               return `<!-- wp:list-item --><li>${liContent}${listSubItems}</li><!-- /wp:list-item -->`;
             } else {
               // No nested list, just process link
               let liContent = li.innerHTML;
-              if (aTag && aTag.textContent) {
-                const linkText = aTag.textContent;
-                const newHref = generateHashId(linkText);
+              if (aTag && aTag.textContent && aTag.textContent.trim()) {
+                const rawLinkText = aTag.textContent.trim();
+                const cleanedLinkText = cleanLinkText(rawLinkText);
+                const newHref = generateHashId(cleanedLinkText);
                 liContent = liContent.replace(/href="[^"]*"/, `href="#${newHref}"`);
               }
               return `<!-- wp:list-item --><li>${liContent}</li><!-- /wp:list-item -->`;
@@ -2389,13 +2527,56 @@ ${columnsHTML}
         
         // ★ ปิดการใช้งานฟังก์ชัน convertReadMoreLinks เพื่อป้องกันการซ้อน blocks
         // เนื่องจาก readmore ถูกแปลงไปแล้วใน DOM processing loop แล้ว
-        // htmlString = convertReadMoreLinks(htmlString); // ❌ DISABLED
-        
-        // ★ เพิ่มขั้นตอน: แปลง table ที่มีลิงก์เดียวเป็น Gutenberg Button Block
         htmlString = convertTableToButton(htmlString);
 
         // ประมวลผลลิงก์ตามเว็บไซต์ที่เลือก
         htmlString = processLinks(htmlString, selectedWebsite);
+        
+        // ลบ underline ที่ซ้อนกันใน link สำหรับ bestbrandclinic.com
+        // เพราะ link มี underline อยู่แล้วจาก CSS ไม่ต้องมี <u> tag ซ้อน
+        if (selectedWebsite === 'bestbrandclinic.com') {
+          // ลบ <u> tag (รวมถึงที่มี style attribute) ที่อยู่ภายใน <a> tag (เก็บเนื้อหาไว้)
+          // รองรับ: <u>, <u style="...">, <u class="..."> ฯลฯ
+          htmlString = htmlString.replace(/<a\s+([^>]*)>(\s*)<u[^>]*>([\s\S]*?)<\/u>(\s*)<\/a>/gi, '<a $1>$2$3$4</a>');
+          
+          // จับประโยคจัดกลางที่อยู่เหนือ Alt : และย้ายไปเป็น caption ของ image block
+          // Pattern: <!-- wp:image --> ... <!-- /wp:image --> ตามด้วย paragraph จัดกลาง ตามด้วย paragraph ที่มี Alt :
+          // แปลงเป็น: <!-- wp:image --> พร้อม figcaption
+          htmlString = htmlString.replace(
+            /(<!-- wp:image[^>]*-->)\s*<figure([^>]*)>\s*(<img[^>]*>)\s*<\/figure>\s*(<!-- \/wp:image -->)\s*<!-- wp:paragraph[^>]*-->\s*<p[^>]*class="[^"]*has-text-align-center[^"]*"[^>]*>([^<]+)<\/p>\s*<!-- \/wp:paragraph -->/gi,
+            (match, openComment, figureAttrs, imgTag, closeComment, captionText) => {
+              // ตรวจสอบว่า captionText ไม่ใช่ Alt text
+              if (/^(alt|Alt|ALT)\s*:/i.test(captionText.trim())) {
+                return match; // ไม่แปลง ถ้าเป็น Alt text
+              }
+              const cleanCaption = captionText.trim();
+              return `${openComment}
+<figure${figureAttrs}>
+  ${imgTag}
+  <figcaption class="wp-element-caption">${cleanCaption}</figcaption>
+</figure>
+${closeComment}`;
+            }
+          );
+          
+          // Pattern 2: จับ paragraph จัดกลางที่อยู่หลัง image block และก่อน Alt paragraph
+          // <!-- wp:image --> ... <!-- /wp:image --> + centered paragraph + Alt paragraph
+          htmlString = htmlString.replace(
+            /(<!-- wp:image[^>]*-->)\s*<figure([^>]*)>\s*(<img[^>]*>)\s*<\/figure>\s*(<!-- \/wp:image -->)\s*(<!-- wp:paragraph[^>]*-->\s*<p[^>]*>([^<]*)<\/p>\s*<!-- \/wp:paragraph -->)\s*(?=<!-- wp:paragraph[^>]*-->\s*<p[^>]*>(?:alt|Alt|ALT)\s*:)/gi,
+            (match, openComment, figureAttrs, imgTag, closeComment, captionBlock, captionText) => {
+              const cleanCaption = captionText.trim();
+              if (!cleanCaption || /^(alt|Alt|ALT)\s*:/i.test(cleanCaption)) {
+                return match; // ไม่แปลง ถ้าไม่มี caption หรือเป็น Alt text
+              }
+              return `${openComment}
+<figure${figureAttrs}>
+  ${imgTag}
+  <figcaption class="wp-element-caption">${cleanCaption}</figcaption>
+</figure>
+${closeComment}`;
+            }
+          );
+        }
         
         // เพิ่ม footer ถ้าเลือก vsquareclinic.com
         if (selectedWebsite === 'vsquareclinic.com') {
@@ -2411,12 +2592,42 @@ ${columnsHTML}
         if (selectedWebsite === 'vsquareconsult.com') {
           htmlString = htmlString.trim() + '\n<!-- wp:block {"ref":34903} /-->';
         }
+        
+        // เพิ่ม footer ถ้าเลือก vsquare-under-eye.com
+        if (selectedWebsite === 'vsquare-under-eye.com') {
+          htmlString = htmlString.trim() + '\n<!-- wp:block {"ref":8916} /-->';
+        }
+        
+        // เพิ่ม footer ถ้าเลือก vsquareclinic.co (ไม่มี separator)
+        if (selectedWebsite === 'vsquareclinic.co') {
+          htmlString = htmlString.trim() + '\n<!-- wp:block {"ref":148} /-->';
+        }
+        
+        // เพิ่ม footer ถ้าเลือก vsq-injector.com (ไม่มี separator)
+        if (selectedWebsite === 'vsq-injector.com') {
+          htmlString = htmlString.trim() + '\n<!-- wp:block {"ref":170} /-->';
+        }
+        
+        // เพิ่ม footer ถ้าเลือก en.vsquareclinic.com
+        if (selectedWebsite === 'en.vsquareclinic.com') {
+          htmlString = htmlString.trim() + '\n<!-- wp:block {"ref":66914} /-->';
+        }
+        
+        // เพิ่ม footer ถ้าเลือก cn.vsquareclinic.com
+        if (selectedWebsite === 'cn.vsquareclinic.com') {
+          htmlString = htmlString.trim() + '\n<!-- wp:block {"ref":16702} /-->';
+        }
+        
+        // ลบ separator ท้ายสุดสำหรับเว็บไซต์ที่ไม่ต้องการ separator
+        const websitesWithoutSeparator = ['vsquareclinic.co', 'vsq-injector.com', 'vsquare.clinic', 'drvsquare.com', 'doctorvsquareclinic.com', 'bestbrandclinic.com', 'monghaclinic.com'];
+        if (websitesWithoutSeparator.includes(selectedWebsite)) {
+          htmlString = htmlString.replace(/<!-- wp:separator -->\s*<hr class="wp-block-separator[^"]*"\/?>\s*<!-- \/wp:separator -->\s*$/gi, '');
+        }
 
         // ล้างฟอร์แมตแปลกๆ อัตโนมัติก่อนแสดงผล (Clear Unknown Formatting)
-          htmlString = cleanHTML(htmlString);
+        htmlString = cleanHTML(htmlString);
 
         // ลบ <p> tags ที่ wrap Gutenberg block comments (<!-- ... -->)
-        // รองรับทุก pattern ของ Gutenberg blocks
         htmlString = htmlString.replace(/<p>\s*(<!--[^>]*-->)\s*<\/p>/gi, '$1');
         
         // ลบ <p> tags ว่างที่อาจเกิดขึ้นจากการลบ comments
@@ -2427,6 +2638,7 @@ ${columnsHTML}
         console.error('Conversion error:', error);
       } finally {
         setIsLoading(false);
+// ... (rest of the code remains the same)
       }
     };
     reader.readAsArrayBuffer(file);
@@ -2762,9 +2974,22 @@ ${columnsHTML}
                 
                 {/* Code Content */}
                 <div className="code-wrapper">
-                  <SyntaxHighlighter language="javascript" style={vscDarkPlus} className="syntax-highlighter" showLineNumbers>
-                    {htmlContent}
-                  </SyntaxHighlighter>
+                  {htmlContent ? (
+                    <SyntaxHighlighter 
+                      language="html" 
+                      style={vscDarkPlus} 
+                      className="syntax-highlighter" 
+                      showLineNumbers
+                      wrapLines={false}
+                      wrapLongLines={false}
+                    >
+                      {htmlContent}
+                    </SyntaxHighlighter>
+                  ) : (
+                    <pre className="syntax-highlighter" style={{ padding: '16px', color: '#d4d4d4', backgroundColor: '#1e1e1e', margin: 0, minHeight: '200px' }}>
+                      {/* Empty state */}
+                    </pre>
+                  )}
                 </div>
               </div>
             </div>
