@@ -3972,38 +3972,40 @@ export function applyPolicies(html, config = defaultPolicyConfig) {
   if (config.removeBeforeH1.enabled) {
     const firstH1 = $('h1').first();
     if (firstH1.length > 0) {
-      let removedCount = 0;
       const removedElements = [];
+      const elementsToRemove = [];
 
-      // Remove all siblings before the first H1
+      // Collect all siblings before the first H1
       firstH1.prevAll().each((_, el) => {
         const tagName = $(el).prop('tagName')?.toLowerCase();
         if (tagName) {
           removedElements.push(tagName);
         }
-        removedCount++;
-        $(el).remove();
+        elementsToRemove.push(el);
       });
 
-      // Also check parent containers and remove content before them
+      // Also check parent containers and collect content before them
       let parent = firstH1.parent();
       while (parent.length > 0 && parent.prop('tagName')?.toLowerCase() !== 'body' && parent.prop('tagName')?.toLowerCase() !== 'html') {
-        parent.prevAll().each((_, el) => {
+        const prevElements = parent.prevAll().toArray();
+        prevElements.forEach((el) => {
           const tagName = $(el).prop('tagName')?.toLowerCase();
           if (tagName) {
             removedElements.push(tagName);
           }
-          removedCount++;
-          $(el).remove();
+          elementsToRemove.push(el);
         });
         parent = parent.parent();
       }
 
+      // Remove all collected elements
+      elementsToRemove.forEach((el) => $(el).remove());
+
       // Remove the first H1 itself
       removedElements.push('h1');
-      removedCount++;
       firstH1.remove();
 
+      const removedCount = elementsToRemove.length + 1; // +1 for H1
       if (removedCount > 0) {
         const uniqueTags = [...new Set(removedElements)].join(', ');
         triggered.push('removeBeforeH1');

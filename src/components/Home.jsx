@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import mammoth from 'mammoth';
 import { Helmet, HelmetProvider } from 'react-helmet-async';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -6,11 +6,9 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faFileArrowUp, faFileImport, faCopy, faCircleNotch, faCheck } from '@fortawesome/free-solid-svg-icons';
 import { cleanGutenbergTables } from '../utils/cleanGutenbergTables';
-import { convertReadMoreToBlock } from '../utils/convertReadMoreToBlock';
 import { addQAHeadingClass } from '../utils/addQAHeadingClass';
 import { removeAltText } from '../utils/removeAltText';
 import { convertTableToButton } from '../utils/convertTableToButton';
-import { convertReadMoreLinks } from '../utils/convertReadMoreLinks';
 
 // ✅ YouTube Detection and Conversion Functions
 function isYouTubeUrl(url) {
