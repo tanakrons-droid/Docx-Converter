@@ -2642,7 +2642,7 @@ ${closeComment}`;
 
         // จัดรูปแบบ Gutenberg blocks ให้มี newline ระหว่าง blocks
         // แทนที่ช่องว่างระหว่าง closing และ opening comments ด้วย newline
-        htmlString = htmlString.replace(/(<!-- \/wp:[a-z-]+ -->)\s+(<!-- wp:[a-z-]+)/gi, '$1\n$2');
+        htmlString = htmlString.replace(/(<!-- \/wp:[a-z0-9\/-]+ -->)\s+(<!-- wp:[a-z0-9\/-]+)/gi, '$1\n$2');
 
         setHtmlContent(htmlString.trim());
       } catch (error) {
