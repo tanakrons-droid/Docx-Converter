@@ -2247,6 +2247,7 @@ export function convertToGutenberg(html, website = null) {
                               textContent.includes('อ่านเพิ่มเติม') ||
                               textContent.includes('บทความเจาะลึก');
         const nextSiblingForTable = $el.next();
+        // eslint-disable-next-line no-unused-vars
         const hasTableBelow = nextSiblingForTable.length > 0 && nextSiblingForTable.is('table');
         const isCenteredForHeadline = /text-align\s*:\s*center/i.test(style) ||
                                      elClass.includes('has-text-align-center') ||
