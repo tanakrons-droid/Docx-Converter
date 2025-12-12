@@ -836,7 +836,9 @@ export function cleanHTML(html, forbiddenTags = [], cssMap = {}) {
     'vsquareclinic.com',
     'www.vsquareclinic.com',
     'vsquareconsult.com',
-    'www.vsquareconsult.com'
+    'www.vsquareconsult.com',
+    'vsquareclinic.co',
+    'www.vsquareclinic.co'
   ];
   
   $('a').each((_, el) => {
@@ -1775,48 +1777,53 @@ export function convertToGutenberg(html, website = null) {
     }
   });
 
-  // Pre-process: Find H3s between Q&A and สรุป headings
-  // If there are 3-10 H3s in that range, mark them for "headtext" class
+  // Pre-process: Find H3s under Q&A/FAQ H2 headings
+  // If there are 3+ H3s under the Q&A H2, mark them for "headtext" class
+  // Q&A H2 is identified by: คำถามที่พบบ่อย, FAQ, Q&A, etc. with label-heading class (centered)
   const h3sWithHeadtext = new Set();
   
   // Find all headings
   const allHeadings = $('h1, h2, h3, h4, h5, h6').toArray();
   
-  // Find Q&A/คำถามที่พบบ่อย heading index
+  // Find Q&A/คำถามที่พบบ่อย H2 heading index
   let qaHeadingIndex = -1;
-  // Find last สรุป heading index
-  let summaryHeadingIndex = -1;
   
   allHeadings.forEach((heading, index) => {
     const headingText = $(heading).text().trim();
+    const tagName = heading.tagName?.toLowerCase();
     
-    // Check for Q&A / คำถามที่พบบ่อย
-    if (headingText.includes('Q&A') || headingText.includes('Q&amp;A') || 
+    // Check for Q&A / คำถามที่พบบ่อย / FAQ (H2 only)
+    if (tagName === 'h2' && (
+        headingText.includes('Q&A') || headingText.includes('Q&amp;A') || 
         headingText.includes('คำถามที่พบบ่อย') || headingText.includes('FAQ') ||
-        (headingText.includes('คำถาม') && headingText.includes('คำตอบ'))) {
+        (headingText.includes('คำถาม') && headingText.includes('คำตอบ')))) {
       qaHeadingIndex = index;
-    }
-    
-    // Check for สรุป (use last occurrence)
-    if (headingText.startsWith('สรุป')) {
-      summaryHeadingIndex = index;
     }
   });
   
-  // If both Q&A and สรุป found, count H3s between them
-  if (qaHeadingIndex !== -1 && summaryHeadingIndex !== -1 && qaHeadingIndex < summaryHeadingIndex) {
-    const h3sBetween = [];
+  // If Q&A H2 found, find all H3s under it until next H2 or สรุป or end
+  if (qaHeadingIndex !== -1) {
+    const h3sUnderQA = [];
     
-    for (let i = qaHeadingIndex + 1; i < summaryHeadingIndex; i++) {
+    for (let i = qaHeadingIndex + 1; i < allHeadings.length; i++) {
       const heading = allHeadings[i];
-      if (heading.tagName?.toLowerCase() === 'h3') {
-        h3sBetween.push(heading);
+      const tagName = heading.tagName?.toLowerCase();
+      const headingText = $(heading).text().trim();
+      
+      // Stop at next H2 or สรุป heading
+      if (tagName === 'h2' || headingText.startsWith('สรุป')) {
+        break;
+      }
+      
+      // Collect H3s
+      if (tagName === 'h3') {
+        h3sUnderQA.push(heading);
       }
     }
     
-    // If there are 3-10 H3s, mark them for headtext class
-    if (h3sBetween.length >= 3 && h3sBetween.length <= 10) {
-      h3sBetween.forEach(h3 => h3sWithHeadtext.add(h3));
+    // If there are 3+ H3s, mark them for headtext class
+    if (h3sUnderQA.length >= 3) {
+      h3sUnderQA.forEach(h3 => h3sWithHeadtext.add(h3));
     }
   }
 
@@ -1905,9 +1912,7 @@ export function convertToGutenberg(html, website = null) {
             classBlock += ' has-text-align-center';
             textAlignAttr = '"textAlign":"center"';
           }
-          if (specialHeading.addSeparator) {
-            blockSeparator = '<!-- wp:separator -->\n<hr class="wp-block-separator has-alpha-channel-opacity">\n<!-- /wp:separator -->';
-          }
+          // Note: specialHeading.addSeparator is handled below with H2/H3 logic
         } else if (isCentered) {
           classBlock += ' has-text-align-center';
           textAlignAttr = '"textAlign":"center"';
@@ -1936,24 +1941,28 @@ export function convertToGutenberg(html, website = null) {
           attrString = ` {${parts.join(',')}}`;
         }
         
-        // Add target block and separator like Home.jsx
-        if ((level === 2 || level === 3) && hashTagId) {
-          if (level === 2 && isFirstH2) {
-            // Skip separator and ps2id-block/target for first H2
+        // Add separator and target block for H2/H3
+        // Rule: H2 always gets separator EXCEPT the first H2
+        if (level === 2) {
+          if (isFirstH2) {
+            // First H2: NO separator, NO target
             isFirstH2 = false;
-          } else if (level === 2) {
-            // H2: always add separator (except first)
+          } else {
+            // All other H2: ALWAYS add separator
             blockSeparator = '<!-- wp:separator -->\n<hr class="wp-block-separator has-alpha-channel-opacity">\n<!-- /wp:separator -->';
-            blockTarget = `<!-- wp:ps2id-block/target --><div class="wp-block-ps2id-block-target" id="${hashTagId}"></div><!-- /wp:ps2id-block/target -->`;
-          } else if (level === 3) {
-            // H3: only "สรุป" gets separator, but all get target
-            if (textOnly === 'สรุป' || textOnly.startsWith('สรุป')) {
-              blockSeparator = '<!-- wp:separator -->\n<hr class="wp-block-separator has-alpha-channel-opacity">\n<!-- /wp:separator -->';
+            // Add target only if hashTagId exists
+            if (hashTagId) {
+              blockTarget = `<!-- wp:ps2id-block/target --><div class="wp-block-ps2id-block-target" id="${hashTagId}"></div><!-- /wp:ps2id-block/target -->`;
             }
-            blockTarget = `<!-- wp:ps2id-block/target --><div class="wp-block-ps2id-block-target" id="${hashTagId}"></div><!-- /wp:ps2id-block/target -->`;
           }
+        } else if (level === 3 && hashTagId) {
+          // H3: only "สรุป" gets separator, but all get target
+          if (textOnly === 'สรุป' || textOnly.startsWith('สรุป')) {
+            blockSeparator = '<!-- wp:separator -->\n<hr class="wp-block-separator has-alpha-channel-opacity">\n<!-- /wp:separator -->';
+          }
+          blockTarget = `<!-- wp:ps2id-block/target --><div class="wp-block-ps2id-block-target" id="${hashTagId}"></div><!-- /wp:ps2id-block/target -->`;
         }
-        // H4, H5, H6: no separator, no target (like Home.jsx)
+        // H4, H5, H6: no separator, no target
         
         blockCount++;
         const headingBlock = `<!-- wp:heading${attrString} --><${tagName} class="${classBlock}">${textOnly}</${tagName}><!-- /wp:heading -->`;
@@ -2135,10 +2144,18 @@ export function convertToGutenberg(html, website = null) {
         // Only create caption-img if NOT already in skipParagraphs (not used as figcaption)
         // AND if paragraph doesn't contain multiple images (those should be Kadence Row Layout)
         // AND if not "ข้อควรรู้" with surrounding quotes (should be quote block, not caption)
+        // AND if not headline text (บทความแนะนำ, อ่านบทความเพิ่มเติม, etc.)
         const imgsInPara = $el.find('img');
         // Check for ข้อควรรู้ pattern - check if text contains ข้อควรรู้
         const isKnowledgeQuoteWithMarks = textContent.includes('ข้อควรรู้');
-        if ((isItalicPara || isCenteredPara) && hasImgAbove && !skipParagraphs.has(element) && imgsInPara.length === 0 && !isKnowledgeQuoteWithMarks) {
+        // Check for headline text - these should NOT be caption-img
+        const isHeadlineContent = textContent.includes('บทความแนะนำ') || 
+                                  textContent.includes('โปรแนะนำ') || 
+                                  textContent.includes('อ่านบทความเพิ่มเติม') ||
+                                  textContent.includes('คลิกอ่านบทความ') ||
+                                  textContent.includes('อ่านเพิ่มเติม') ||
+                                  textContent.includes('บทความเจาะลึก');
+        if ((isItalicPara || isCenteredPara) && hasImgAbove && !skipParagraphs.has(element) && imgsInPara.length === 0 && !isKnowledgeQuoteWithMarks && !isHeadlineContent) {
           // Check if the previous image already has this as figcaption
           // If so, skip creating a separate paragraph
           const prevHtml = prevSibling.html() || '';
@@ -2221,17 +2238,22 @@ export function convertToGutenberg(html, website = null) {
           return wrapBlock('paragraph', `<p class="has-text-align-center">${content}</p>`, { align: 'center' });
         }
         
-        // Headline detection: บทความแนะนำ, โปรแนะนำ, อ่านบทความเพิ่มเติม above table => headline class
+        // Headline detection: บทความแนะนำ, โปรแนะนำ, อ่านบทความเพิ่มเติม, คลิกอ่านบทความ
+        // If centered AND (above table OR is headline text) => headline class
         const isHeadlineText = textContent.includes('บทความแนะนำ') || 
                               textContent.includes('โปรแนะนำ') || 
-                              textContent.includes('อ่านบทความเพิ่มเติม');
+                              textContent.includes('อ่านบทความเพิ่มเติม') ||
+                              textContent.includes('คลิกอ่านบทความ') ||
+                              textContent.includes('อ่านเพิ่มเติม') ||
+                              textContent.includes('บทความเจาะลึก');
         const nextSiblingForTable = $el.next();
         const hasTableBelow = nextSiblingForTable.length > 0 && nextSiblingForTable.is('table');
         const isCenteredForHeadline = /text-align\s*:\s*center/i.test(style) ||
                                      elClass.includes('has-text-align-center') ||
                                      elClass.includes('text-center');
         
-        if (isHeadlineText && hasTableBelow && isCenteredForHeadline) {
+        // Headline class if: (centered AND headline text) OR (centered AND above table with headline text)
+        if (isHeadlineText && isCenteredForHeadline) {
           blockCount++;
           return wrapBlock('paragraph', `<p class="has-text-align-center headline">${content}</p>`, { align: 'center', className: 'headline' });
         }
@@ -2562,6 +2584,8 @@ export function convertToGutenberg(html, website = null) {
             if ((isCentered || isItalic) && pText.length > 0 && pText.length < 200 &&
                 !pText.startsWith('สารบัญ') && !pText.startsWith('อ้างอิง') &&
                 !pText.startsWith('สรุป') && !pText.startsWith('Q&A') &&
+                !pText.startsWith('คลิกอ่านบทความ') && !pText.startsWith('อ่านบทความ') &&
+                !pText.startsWith('คลิกอ่านเพิ่มเติม') && !pText.startsWith('อ่านเพิ่มเติม') &&
                 !/^(Alt|alt|ALT)\s*:/i.test(pText) && !/^H\s*:\s*[1-6]/i.test(pText) &&
                 !hasUrl) {
               allCaptionParagraphs.push(pText);
@@ -2636,19 +2660,11 @@ export function convertToGutenberg(html, website = null) {
 <!-- /wp:quote -->`;
           }
           
-          // Read more with link
+          // Read more with link - keep original text, just add class
           if (specialClass.isReadMore) {
-            const linkEl = $el.find('a').first();
-            let readMoreContent = '';
-            if (linkEl.length > 0) {
-              const href = linkEl.attr('href') || '#';
-              const linkText = linkEl.text() || '';
-              readMoreContent = `อ่านบทความเพิ่มเติม : <a href="${href}" target="_blank" rel="noreferrer noopener">${linkText}</a>`;
-            } else {
-              readMoreContent = 'อ่านบทความเพิ่มเติม :';
-            }
             blockCount++;
-            return wrapBlock('paragraph', `<p class="vsq-readmore">${readMoreContent}</p>`, { className: 'vsq-readmore' });
+            // Keep the original content (with links preserved), just add vsq-readmore class
+            return wrapBlock('paragraph', `<p class="vsq-readmore">${content}</p>`, { className: 'vsq-readmore' });
           }
           
           // Line@ promotion with button
@@ -2727,7 +2743,11 @@ export function convertToGutenberg(html, website = null) {
         // Define internal domains (links to these domains won't open in new tab)
         const internalDomains = [
           'vsquareclinic.com',
-          'www.vsquareclinic.com'
+          'www.vsquareclinic.com',
+          'vsquareconsult.com',
+          'www.vsquareconsult.com',
+          'vsquareclinic.co',
+          'www.vsquareclinic.co'
         ];
         
         finalContent = finalContent.replace(/<a\s+([^>]*?)>/gi, (match, attributes) => {
@@ -4193,7 +4213,9 @@ function getWebsiteFooter(website) {
     'cn.vsquareclinic.com': '\n<!-- wp:block {"ref":16702} /-->'
   };
   
-  return footers[website] || '';
+  // Normalize website by removing www. prefix
+  const normalizedWebsite = website ? website.replace(/^www\./, '') : '';
+  return footers[normalizedWebsite] || '';
 }
 
 /**
@@ -4210,7 +4232,9 @@ function shouldRemoveTrailingSeparator(website) {
     'bestbrandclinic.com', 
     'monghaclinic.com'
   ];
-  return websitesWithoutSeparator.includes(website);
+  // Normalize website by removing www. prefix
+  const normalizedWebsite = website ? website.replace(/^www\./, '') : '';
+  return websitesWithoutSeparator.includes(normalizedWebsite);
 }
 
 /**
@@ -4270,6 +4294,12 @@ export function convert(inputHtml, options = {}) {
       // Remove separator that appears after a list block following references paragraph
       gutenbergHtml = gutenbergHtml.replace(
         /(<!-- \/wp:list -->\s*)\n*<!-- wp:separator -->\s*<hr class="wp-block-separator[^"]*"\s*\/?>\s*<!-- \/wp:separator -->/gi,
+        '$1'
+      );
+      
+      // Remove separator that appears immediately before <!-- wp:block {"ref":34903} /-->
+      gutenbergHtml = gutenbergHtml.replace(
+        /<!-- wp:separator -->\s*<hr class="wp-block-separator[^"]*"\s*\/?>\s*<!-- \/wp:separator -->\s*\n*(<!-- wp:block \{"ref":34903\} \/-->)/gi,
         '$1'
       );
     }
@@ -4332,8 +4362,29 @@ export function convert(inputHtml, options = {}) {
       .replace(/\s*colspan="1"\s*/gi, ' ')
       .replace(/\s*rowspan="1"\s*/gi, ' ')
       .replace(/<(td|th)\s+/gi, '<$1 ')  // Normalize spacing after td/th
-      .replace(/\s{2,}/g, ' ')  // Remove double spaces
+      .replace(/ {2,}/g, ' ')  // Remove double spaces (preserve newlines)
       .trim();
+
+    // Step 10: Remove separator immediately before footer ref block for specific websites (FINAL step)
+    if (options.website) {
+      const normalizedSite = options.website.replace(/^www\./, '');
+      
+      // vsquareconsult.com - remove separator before ref:34903
+      if (normalizedSite === 'vsquareconsult.com') {
+        gutenbergHtml = gutenbergHtml.replace(
+          /<!-- wp:separator[^>]*-->\s*<hr[^>]*>\s*<!-- \/wp:separator -->\s*(?=<!-- wp:block \{"ref":34903\} \/-->)/gi,
+          ''
+        );
+      }
+      
+      // vsquareclinic.co - remove separator before ref:148
+      if (normalizedSite === 'vsquareclinic.co') {
+        gutenbergHtml = gutenbergHtml.replace(
+          /<!-- wp:separator[^>]*-->\s*<hr[^>]*>\s*<!-- \/wp:separator -->\s*(?=<!-- wp:block \{"ref":148\} \/-->)/gi,
+          ''
+        );
+      }
+    }
 
     const executionTimeMs = Math.round(performance.now() - startTime);
 

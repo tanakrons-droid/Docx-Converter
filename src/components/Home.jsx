@@ -1398,6 +1398,7 @@ const tagImg = p.querySelectorAll('img');
         });
 
         // Convert heading tags to Gutenberg format
+        let isFirstH2 = true;
         doc.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach((heading, index) => {
           const level = heading.tagName.toLowerCase();
           const levelNumber = level.match(/\d+/)[0];
@@ -1431,7 +1432,14 @@ const tagImg = p.querySelectorAll('img');
               attrLevel = '';
             }
           }
-          if (index === 0) {
+          // H2 แรกไม่ใส่ separator/target, H2 ที่ 2+ ใส่ทั้งคู่, H1 ไม่ใส่เลย
+          if (level === 'h2') {
+            if (isFirstH2) {
+              blockSeparator = '';
+              blockTarget = '';
+              isFirstH2 = false;
+            }
+          } else if (level === 'h1') {
             blockSeparator = '';
             blockTarget = '';
           }
@@ -2626,7 +2634,7 @@ ${closeComment}`;
         }
         
         // ลบ separator ท้ายสุดสำหรับเว็บไซต์ที่ไม่ต้องการ separator
-        const websitesWithoutSeparator = ['vsquareclinic.co', 'vsq-injector.com', 'vsquare.clinic', 'drvsquare.com', 'doctorvsquareclinic.com', 'bestbrandclinic.com', 'monghaclinic.com'];
+        const websitesWithoutSeparator = ['vsquareclinic.co', 'vsq-injector.com', 'vsquare.clinic', 'drvsquare.com', 'doctorvsquareclinic.com', 'bestbrandclinic.com', 'monghaclinic.com', 'vsquareconsult.com'];
         if (websitesWithoutSeparator.includes(selectedWebsite)) {
           htmlString = htmlString.replace(/\n*<!-- wp:separator -->\n*<hr class="wp-block-separator[^"]*"\s*\/?>\n*<!-- \/wp:separator -->\s*$/gi, '');
         }
@@ -2642,7 +2650,7 @@ ${closeComment}`;
 
         // จัดรูปแบบ Gutenberg blocks ให้มี newline ระหว่าง blocks
         // แทนที่ช่องว่างระหว่าง closing และ opening comments ด้วย newline
-        htmlString = htmlString.replace(/(<!-- \/wp:[a-z0-9\/-]+ -->)\s+(<!-- wp:[a-z0-9\/-]+)/gi, '$1\n$2');
+        htmlString = htmlString.replace(/(<!-- \/wp:[a-z0-9\/_-]+ -->) +(<!-- wp:)/gi, '$1\n$2');
 
         setHtmlContent(htmlString.trim());
       } catch (error) {
