@@ -99,6 +99,19 @@ function processNode(
     case 'h5':
     case 'h6': {
       const level = parseInt(tagName.charAt(1), 10);
+      
+      // Check if heading contains images (Google Docs img box pattern)
+      const headingImages = $el.find('img');
+      if (headingImages.length > 0) {
+        // Extract image and convert to image block instead of heading
+        const img = headingImages.first();
+        const src = img.attr('src') || '';
+        const alt = img.attr('alt') || '';
+        const width = img.attr('width') ? parseInt(img.attr('width')!, 10) : undefined;
+        const height = img.attr('height') ? parseInt(img.attr('height')!, 10) : undefined;
+        return createImageBlock(src, alt, { width, height });
+      }
+      
       const content = getInnerHtml($, $el, opts);
       const align = extractAlignment($el);
       return createHeadingBlock(content, level, align ? { align } : undefined);

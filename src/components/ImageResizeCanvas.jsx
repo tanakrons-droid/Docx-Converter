@@ -10,6 +10,24 @@ import React, { useState, useRef, useEffect } from 'react';
 let wasmModule = null;
 let wasmLoading = false;
 
+const sanitizeForFileSystem = (input, fallback = 'item') => {
+  if (!input) return fallback;
+  let sanitized = String(input);
+  if (typeof sanitized.normalize === 'function') {
+    sanitized = sanitized.normalize('NFKD');
+  }
+  sanitized = sanitized
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9._-]/g, '_')
+    .replace(/_{2,}/g, '_')
+    .replace(/^\.+|\.+$/g, '')
+    .replace(/^_+|_+$/g, '')
+    .trim();
+
+  if (!sanitized) return fallback;
+  return sanitized.slice(0, 150);
+};
+
 const loadWASM = async () => {
   if (wasmModule || wasmLoading) return wasmModule;
   
@@ -486,7 +504,7 @@ export default function ImageResizeCanvas() {
       });
 
       // สร้างโฟลเดอร์ย่อย "Resize" ภายในโฟลเดอร์ที่เลือก
-      const resizeFolderName = `${dirHandle.name} Resize`;
+      const resizeFolderName = sanitizeForFileSystem(`${dirHandle.name || 'Resize'} Resize`, 'Resize');
       let resizeDir;
       
       try {
@@ -497,6 +515,7 @@ export default function ImageResizeCanvas() {
       }
 
       // เขียนไฟล์ทั้งหมดลงในโฟลเดอร์ย่อย "Resize"
+      const usedFilenames = new Set();
       for (let i = 0; i < ready.length; i++) {
         const item = ready[i];
         const ext = {
@@ -506,7 +525,15 @@ export default function ImageResizeCanvas() {
         }[item.format] || 'jpg';
 
         const nameWithoutExt = item.name.replace(/\.[^/.]+$/, '');
-        const newFilename = `${nameWithoutExt}_resized.${ext}`;
+        const sanitizedBase = sanitizeForFileSystem(nameWithoutExt, 'image');
+        const baseName = sanitizedBase || 'image';
+        let newFilename = `${baseName}.${ext}`;
+        let counter = 1;
+        while (usedFilenames.has(newFilename)) {
+          newFilename = `${baseName}(${counter}).${ext}`;
+          counter++;
+        }
+        usedFilenames.add(newFilename);
 
         const fileHandle = await resizeDir.getFileHandle(newFilename, { create: true });
         const writable = await fileHandle.createWritable();

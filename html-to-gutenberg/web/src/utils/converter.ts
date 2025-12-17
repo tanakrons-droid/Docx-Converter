@@ -612,6 +612,23 @@ export function convertToGutenberg(html: string): { html: string; blockCount: nu
       case 'h5':
       case 'h6': {
         const level = parseInt(tagName.charAt(1), 10);
+        
+        // Check if heading contains images (Google Docs img box pattern)
+        const headingImages = $el.find('img');
+        if (headingImages.length > 0) {
+          // Extract image and convert to image block instead of heading
+          const img = headingImages.first();
+          const src = img.attr('src') || '';
+          const alt = cleanAltText(img.attr('alt') || '');
+          const title = img.attr('title') || '';
+          
+          let figureContent = `<figure class="wp-block-image"><img src="${src}" alt="${alt}"${title ? ` title="${title}"` : ''}/>`;
+          figureContent += '</figure>';
+          
+          blockCount++;
+          return wrapBlock('image', figureContent);
+        }
+        
         // Process styled spans in headings
         $el.find('span[style]').each((_, span) => {
           const $span = $(span);

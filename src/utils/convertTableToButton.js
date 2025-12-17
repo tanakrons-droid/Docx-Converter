@@ -27,6 +27,21 @@ export function convertTableToButton(html) {
   return container.innerHTML;
 }
 
+// Helper function to normalize whitespace (including non-breaking spaces)
+function normalizeWhitespace(text) {
+  if (!text) return '';
+  // Replace various whitespace characters with regular space then trim
+  // \u00A0 = non-breaking space (from &nbsp;)
+  // \u2007 = figure space
+  // \u202F = narrow no-break space
+  // \u200B = zero-width space
+  // \u3000 = ideographic space
+  return text
+    .replace(/[\u00A0\u2007\u202F\u200B\u3000\t\n\r\f\v]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // Helper function to check if table should be converted
 function shouldConvertTable(table) {
   // Count all rows (including thead, tbody, tfoot)
@@ -44,10 +59,27 @@ function shouldConvertTable(table) {
   }
 
   const cell = cells[0];
+  
+  // Check for links
   const links = Array.from(cell.querySelectorAll('a'));
   
   if (links.length === 0) {
     return false; // Must have at least one link
+  }
+  
+  // Check if cell contains ONLY link(s) and whitespace (no other significant content)
+  // Clone cell and remove all links to see what's left
+  const cellClone = cell.cloneNode(true);
+  const linksInClone = cellClone.querySelectorAll('a');
+  linksInClone.forEach(link => link.remove());
+  
+  // After removing links, check if there's any meaningful content left
+  // Use normalizeWhitespace to handle &nbsp; and other whitespace characters (human error prevention)
+  const remainingText = normalizeWhitespace(cellClone.textContent);
+  
+  // If there's other content besides links, don't convert
+  if (remainingText.length > 0) {
+    return false;
   }
 
   return true;
@@ -72,33 +104,50 @@ function createButtonBlock(table) {
     buttonText = extractTextContent(link);
     rel = determineRelAttribute(buttonHref);
   } else {
-    // Multiple links - combine text with <br>, use first link's href
+    // Multiple links - check if all have the same URL
     const link = links[0];
     buttonHref = link.getAttribute('href') || '';
     rel = determineRelAttribute(buttonHref);
     
-    buttonText = links.map(link => extractTextContent(link)).join('<br>');
+    // Check if all links have the same URL (common in Google Docs where text is split across multiple <p> tags)
+    const allSameUrl = links.every(l => {
+      const href = l.getAttribute('href') || '';
+      return href === buttonHref;
+    });
+    
+    if (allSameUrl) {
+      // Same URL - combine text without <br> (they're part of the same button text)
+      buttonText = links.map(link => extractTextContent(link)).join('');
+    } else {
+      // Different URLs - combine text with <br>
+      buttonText = links.map(link => extractTextContent(link)).join('<br>');
+    }
   }
 
   // Allow conversion even if href is empty, but text must exist
   if (!buttonText) return null;
 
+  // Check if button text has multiple lines (contains <br>)
+  const hasMultipleLines = /<br\s*\/?>/i.test(buttonText);
+  
   // Create the Gutenberg Button Block
   // If no href, create button without href attribute
-  let linkAttributes = 'class="wp-block-button__link wp-element-button remove-arrow"';
+  let linkAttributes = 'class="wp-block-button__link has-text-align-center wp-element-button"';
   
   if (buttonHref) {
     linkAttributes += ` href="${escapeHtml(buttonHref)}" target="_blank" rel="${rel}"`;
   }
 
-  const buttonBlock = `<!-- wp:buttons {"layout":{"type":"flex","justifyContent":"center"}} -->
-<div class="wp-block-buttons">
-<!-- wp:button -->
-<div class="wp-block-button">
-<a ${linkAttributes}>${buttonText}</a>
-</div>
-<!-- /wp:button -->
-</div>
+  // Add remove-arrow class to wp-block-buttons if button has multiple lines
+  const buttonsClass = hasMultipleLines ? 'wp-block-buttons remove-arrow' : 'wp-block-buttons';
+  const buttonsAttr = hasMultipleLines 
+    ? '{"className":"remove-arrow","layout":{"type":"flex","justifyContent":"center"}}'
+    : '{"layout":{"type":"flex","justifyContent":"center"}}';
+
+  const buttonBlock = `<!-- wp:buttons ${buttonsAttr} -->
+<div class="${buttonsClass}"><!-- wp:button {"textAlign":"center"} -->
+<div class="wp-block-button"><a ${linkAttributes}>${buttonText}</a></div>
+<!-- /wp:button --></div>
 <!-- /wp:buttons -->`;
 
   return buttonBlock;
@@ -122,10 +171,13 @@ function extractTextContent(link) {
   text = text.replace(/<(?!br\s*\/?>)[^>]+>/gi, '');
   
   // Clean up extra whitespace around <br> tags but preserve them
-  text = text.replace(/\s*<br\s*\/?>\s*/gi, '<br>');
+  text = text.replace(/\s*<br\s*\/?>/gi, '<br>');
   
   // Clean up multiple spaces but preserve single spaces and line structure
-  text = text.replace(/[ \t]+/g, ' ').trim();
+  text = text.replace(/[ \t]+/g, ' ');
+  
+  // Trim leading and trailing whitespace (handles human errors like trailing spaces)
+  text = text.trim();
   
   return text;
 }
@@ -138,8 +190,8 @@ function determineRelAttribute(href) {
     const url = new URL(href);
     const domain = url.hostname.toLowerCase();
     
-    // Check for vsquareclinic domains
-    if (domain.includes('vsquareclinic.com') || domain.includes('vsquareclinic.co')) {
+    // Check for vsqclinic and vsquareclinic domains
+    if (domain.includes('vsqclinic.com') || domain.includes('vsquareclinic.com') || domain.includes('vsquareclinic.co')) {
       return 'noreferrer noopener';
     }
     
