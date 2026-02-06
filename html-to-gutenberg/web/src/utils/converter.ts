@@ -105,10 +105,10 @@ export function extractStyles(html: string): CSSClassMap {
 
   $('style').each((_, el) => {
     let cssText = $(el).html() || '';
-    
+
     // Remove @import rules that cause parse errors
     cssText = cssText.replace(/@import[^;]+;/g, '');
-    
+
     try {
       const parsed = css.parse(cssText, { silent: true });
       if (parsed.stylesheet?.rules) {
@@ -123,13 +123,13 @@ export function extractStyles(html: string): CSSClassMap {
                   .filter((d): d is css.Declaration => d.type === 'declaration')
                   .map(d => `${d.property}: ${d.value}`)
                   .join('; ');
-                
+
                 if (styles) {
                   // Store styles for each class in the selector
                   for (const classMatch of classMatches) {
                     const className = classMatch.slice(1); // Remove the dot
-                    cssMap[className] = cssMap[className] 
-                      ? `${cssMap[className]}; ${styles}` 
+                    cssMap[className] = cssMap[className]
+                      ? `${cssMap[className]}; ${styles}`
                       : styles;
                   }
                 }
@@ -146,8 +146,8 @@ export function extractStyles(html: string): CSSClassMap {
         const className = match[1];
         const styles = match[2].trim().replace(/\s+/g, ' ');
         if (styles) {
-          cssMap[className] = cssMap[className] 
-            ? `${cssMap[className]}; ${styles}` 
+          cssMap[className] = cssMap[className]
+            ? `${cssMap[className]}; ${styles}`
             : styles;
         }
       }
@@ -182,7 +182,7 @@ export function cleanHTML(html: string, forbiddenTags: string[] = []): { html: s
       $el.remove();
     }
   });
-  
+
   // Remove comment divs at the bottom
   $('div.c1').each((_, el) => {
     const $el = $(el);
@@ -225,7 +225,7 @@ export function cleanHTML(html: string, forbiddenTags: string[] = []): { html: s
       }
     });
   });
-  
+
   // Remove id attributes from headings (Google Docs adds these)
   $('h1, h2, h3, h4, h5, h6').removeAttr('id');
 
@@ -242,7 +242,7 @@ export function cleanHTML(html: string, forbiddenTags: string[] = []): { html: s
 function parseStyleString(styleStr: string): Map<string, string> {
   const styleMap = new Map<string, string>();
   const parts = styleStr.split(';').map(s => s.trim()).filter(Boolean);
-  
+
   for (const part of parts) {
     const colonIndex = part.indexOf(':');
     if (colonIndex > 0) {
@@ -253,7 +253,7 @@ function parseStyleString(styleStr: string): Map<string, string> {
       }
     }
   }
-  
+
   return styleMap;
 }
 
@@ -281,14 +281,14 @@ function filterImportantStyles(styleMap: Map<string, string>): Map<string, strin
     'width', 'height', 'max-width', 'max-height',
     'display', 'vertical-align'
   ]);
-  
+
   const filtered = new Map<string, string>();
   styleMap.forEach((value, prop) => {
     if (importantProps.has(prop)) {
       filtered.set(prop, value);
     }
   });
-  
+
   return filtered;
 }
 
@@ -302,17 +302,17 @@ export function inlineStyles(html: string, cssMap: CSSClassMap): string {
   $('[class]').each((_, el) => {
     const $el = $(el);
     const classes = ($el.attr('class') || '').split(/\s+/).filter(Boolean);
-    
+
     // Collect all styles from classes
     const mergedStyles = new Map<string, string>();
-    
+
     // First, add existing inline styles
     const existingStyle = $el.attr('style') || '';
     if (existingStyle) {
       const existingMap = parseStyleString(existingStyle);
       existingMap.forEach((v, k) => mergedStyles.set(k, v));
     }
-    
+
     // Then add styles from CSS classes
     classes.forEach(cls => {
       if (cssMap[cls]) {
@@ -354,21 +354,21 @@ function processStyledContent($el: cheerio.Cheerio<Element>, _$: cheerio.Cheerio
   let content = $el.html() || '';
   const style = $el.attr('style') || '';
   const styleMap = parseStyleString(style);
-  
+
   // Collect all inline styles to preserve
   const preserveStyles: string[] = [];
-  
+
   // Handle font-weight (bold)
   const fontWeight = styleMap.get('font-weight');
   if (fontWeight === 'bold' || fontWeight === '700' || parseInt(fontWeight || '0') >= 600) {
     content = `<strong>${content}</strong>`;
   }
-  
+
   // Handle font-style (italic)
   if (styleMap.get('font-style') === 'italic') {
     content = `<em>${content}</em>`;
   }
-  
+
   // Handle text-decoration
   const textDecoration = styleMap.get('text-decoration');
   if (textDecoration?.includes('underline')) {
@@ -377,31 +377,31 @@ function processStyledContent($el: cheerio.Cheerio<Element>, _$: cheerio.Cheerio
   if (textDecoration?.includes('line-through')) {
     content = `<s>${content}</s>`;
   }
-  
+
   // Preserve color
   const color = styleMap.get('color');
   if (color && !isDefaultColor(color)) {
     preserveStyles.push(`color: ${color}`);
   }
-  
+
   // Preserve background-color
   const bgColor = styleMap.get('background-color') || styleMap.get('background');
   if (bgColor && bgColor !== 'transparent' && bgColor !== 'none' && bgColor !== 'initial') {
     preserveStyles.push(`background-color: ${bgColor}`);
   }
-  
+
   // Preserve font-size
   const fontSize = styleMap.get('font-size');
   if (fontSize) {
     preserveStyles.push(`font-size: ${fontSize}`);
   }
-  
+
   // Preserve font-family (if not default)
   const fontFamily = styleMap.get('font-family');
   if (fontFamily && !fontFamily.includes('Arial') && !fontFamily.includes('sans-serif')) {
     preserveStyles.push(`font-family: ${fontFamily}`);
   }
-  
+
   // Wrap with mark tag for highlights or span for other styles
   if (preserveStyles.length > 0) {
     const hasHighlight = bgColor && bgColor !== 'transparent' && bgColor !== 'none';
@@ -411,7 +411,7 @@ function processStyledContent($el: cheerio.Cheerio<Element>, _$: cheerio.Cheerio
       content = `<span style="${preserveStyles.join('; ')}">${content}</span>`;
     }
   }
-  
+
   return content;
 }
 
@@ -443,20 +443,19 @@ function getColorStyles(style: string): { classes: string[]; inlineStyle: string
   const styleMap = parseStyleString(style);
   const classes: string[] = [];
   const styles: string[] = [];
-  
+
   const color = styleMap.get('color');
   const bgColor = styleMap.get('background-color') || styleMap.get('background');
-  
+
   if (color && !isDefaultColor(color)) {
     classes.push('has-text-color');
     styles.push(`color: ${color}`);
   }
-  
+
   if (bgColor && bgColor !== 'transparent' && bgColor !== 'none') {
-    classes.push('has-background');
     styles.push(`background-color: ${bgColor}`);
   }
-  
+
   return {
     classes,
     inlineStyle: styles.length > 0 ? ` style="${styles.join('; ')}"` : ''
@@ -473,7 +472,7 @@ function extractYouTubeId(url: string): string | null {
     /(?:youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/,
     /(?:youtu\.be\/)([a-zA-Z0-9_-]{11})/
   ];
-  
+
   for (const pattern of patterns) {
     const match = url.match(pattern);
     if (match) return match[1];
@@ -491,13 +490,13 @@ function createYouTubeEmbedBlock(url: string, caption?: string): string {
 <div class="wp-block-embed__wrapper">
 ${url}
 </div>`;
-  
+
   if (caption) {
     content += `\n<figcaption class="wp-element-caption">${caption}</figcaption>`;
   }
-  
+
   content += '\n</figure>';
-  
+
   return wrapBlock('embed', content, { url, type: 'video', providerNameSlug: 'youtube', responsive: true });
 }
 
@@ -513,9 +512,9 @@ function cleanAltText(alt: string): string {
  */
 function createKadenceRowLayout(images: { src: string; alt: string; caption?: string }[]): string {
   const columns = images.length;
-  
+
   let innerBlocks = '';
-  
+
   images.forEach((img, index) => {
     const cleanedAlt = cleanAltText(img.alt);
     let imageContent = `<figure class="wp-block-image"><img src="${img.src}" alt="${cleanedAlt}"/>`;
@@ -523,9 +522,9 @@ function createKadenceRowLayout(images: { src: string; alt: string; caption?: st
       imageContent += `<figcaption class="wp-element-caption">${img.caption}</figcaption>`;
     }
     imageContent += '</figure>';
-    
+
     const imageBlock = wrapBlock('image', imageContent);
-    
+
     innerBlocks += `<!-- wp:kadence/column {"id":${index + 1},"uniqueID":"_${Date.now()}_${index}"} -->
 <div class="wp-block-kadence-column kadence-column_${Date.now()}_${index}">
 <div class="kt-inside-inner-col">
@@ -536,7 +535,7 @@ ${imageBlock}
 
 `;
   });
-  
+
   return `<!-- wp:kadence/rowlayout {"uniqueID":"_${Date.now()}","columns":${columns},"colLayout":"equal"} -->
 <div class="wp-block-kadence-rowlayout alignnone">
 <div class="kt-row-column-wrap kt-has-${columns}-columns">
@@ -551,22 +550,22 @@ ${innerBlocks}
  */
 function getSpecialParagraphClass(text: string): { class: string; addSeparator: boolean } | null {
   const lowerText = text.toLowerCase().trim();
-  
+
   // Table of contents
   if (lowerText.includes('สารบัญ') || lowerText.includes('คลิกอ่านหัวข้อ')) {
     return { class: 'subtext-gtb', addSeparator: false };
   }
-  
+
   // Read more
   if (lowerText.includes('อ่านบทความเพิ่มเติม') || lowerText.includes('อ่านเพิ่มเติม')) {
     return { class: 'vsq-readmore', addSeparator: false };
   }
-  
+
   // References
   if (lowerText.includes('อ้างอิง') || lowerText.includes('เอกสารอ้างอิง')) {
     return { class: 'references', addSeparator: true };
   }
-  
+
   return null;
 }
 
@@ -612,7 +611,7 @@ export function convertToGutenberg(html: string): { html: string; blockCount: nu
       case 'h5':
       case 'h6': {
         const level = parseInt(tagName.charAt(1), 10);
-        
+
         // Check if heading contains images (Google Docs img box pattern)
         const headingImages = $el.find('img');
         if (headingImages.length > 0) {
@@ -621,14 +620,14 @@ export function convertToGutenberg(html: string): { html: string; blockCount: nu
           const src = img.attr('src') || '';
           const alt = cleanAltText(img.attr('alt') || '');
           const title = img.attr('title') || '';
-          
+
           let figureContent = `<figure class="wp-block-image"><img src="${src}" alt="${alt}"${title ? ` title="${title}"` : ''}/>`;
           figureContent += '</figure>';
-          
+
           blockCount++;
           return wrapBlock('image', figureContent);
         }
-        
+
         // Process styled spans in headings
         $el.find('span[style]').each((_, span) => {
           const $span = $(span);
@@ -637,22 +636,22 @@ export function convertToGutenberg(html: string): { html: string; blockCount: nu
         });
         const content = $el.html() || '';
         if (!content.trim()) return null;
-        
+
         // Extract styles from element
         const style = $el.attr('style') || '';
         const { align, className: alignClass } = getAlignmentFromStyle(style);
         const { classes: colorClasses, inlineStyle } = getColorStyles(style);
-        
+
         // Build classes array
         const allClasses = [alignClass, ...colorClasses].filter(Boolean);
         const classAttr = allClasses.length > 0 ? ` class="${allClasses.join(' ')}"` : '';
-        
+
         blockCount++;
         const attrs: Record<string, unknown> = { level };
         if (align && align !== 'left') {
           attrs.textAlign = align;
         }
-        
+
         return wrapBlock('heading', `<${tagName}${classAttr}${inlineStyle}>${content}</${tagName}>`, attrs);
       }
 
@@ -663,11 +662,11 @@ export function convertToGutenberg(html: string): { html: string; blockCount: nu
           const processedContent = processStyledContent($span, $);
           $span.replaceWith(processedContent);
         });
-        
+
         const content = $el.html() || '';
         const textContent = $el.text().trim();
         if (!content.trim()) return null;
-        
+
         // Check for YouTube links in paragraph
         const youtubeMatch = textContent.match(/(https?:\/\/(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)[a-zA-Z0-9_-]+[^\s]*)/i);
         if (youtubeMatch) {
@@ -681,26 +680,26 @@ export function convertToGutenberg(html: string): { html: string; blockCount: nu
             return embedBlock;
           }
         }
-        
+
         // Check if this paragraph contains images
         const images = $el.find('img');
         if (images.length > 0) {
           // Check for italic text after images (caption)
           const nextSibling = $el.next();
           let caption: string | undefined;
-          
+
           // Check if next element is italic text (caption)
           if (nextSibling.length > 0) {
             const nextHtml = nextSibling.html() || '';
-            const isItalic = nextSibling.find('em, i').length > 0 || 
-                            nextSibling.attr('style')?.includes('font-style: italic') ||
-                            nextHtml.includes('<em>') || nextHtml.includes('<i>');
+            const isItalic = nextSibling.find('em, i').length > 0 ||
+              nextSibling.attr('style')?.includes('font-style: italic') ||
+              nextHtml.includes('<em>') || nextHtml.includes('<i>');
             if (isItalic && nextSibling.text().trim()) {
               caption = nextSibling.text().trim();
               nextSibling.remove(); // Remove the caption paragraph
             }
           }
-          
+
           // Multiple images - create Kadence Row Layout
           if (images.length > 1) {
             const imageData: { src: string; alt: string; caption?: string }[] = [];
@@ -715,54 +714,54 @@ export function convertToGutenberg(html: string): { html: string; blockCount: nu
             blockCount++;
             return createKadenceRowLayout(imageData);
           }
-          
+
           // Single image
           const img = images.first();
           const src = img.attr('src') || '';
           const alt = cleanAltText(img.attr('alt') || '');
           const title = img.attr('title') || '';
-          
+
           let figureContent = `<figure class="wp-block-image"><img src="${src}" alt="${alt}"${title ? ` title="${title}"` : ''}/>`;
           if (caption) {
             figureContent += `<figcaption class="wp-element-caption">${caption}</figcaption>`;
           }
           figureContent += '</figure>';
-          
+
           blockCount++;
           return wrapBlock('image', figureContent);
         }
-        
+
         // Check for special paragraph types
         const specialClass = getSpecialParagraphClass(textContent);
         if (specialClass) {
           const result: string[] = [];
-          
+
           // Add separator before references
           if (specialClass.addSeparator) {
             blockCount++;
             result.push(wrapBlock('separator', '<hr class="wp-block-separator has-alpha-channel-opacity"/>'));
           }
-          
+
           blockCount++;
           result.push(wrapBlock('paragraph', `<p class="${specialClass.class}">${content}</p>`));
           return result.join('\n\n');
         }
-        
+
         // Extract styles from element
         const style = $el.attr('style') || '';
         const { align, className: alignClass } = getAlignmentFromStyle(style);
         const { classes: colorClasses, inlineStyle } = getColorStyles(style);
-        
+
         // Build classes array
         const allClasses = [alignClass, ...colorClasses].filter(Boolean);
         const classAttr = allClasses.length > 0 ? ` class="${allClasses.join(' ')}"` : '';
-        
+
         blockCount++;
         const attrs: Record<string, unknown> = {};
         if (align && align !== 'left') {
           attrs.align = align;
         }
-        
+
         return wrapBlock('paragraph', `<p${classAttr}${inlineStyle}>${content}</p>`, Object.keys(attrs).length > 0 ? attrs : undefined);
       }
 
@@ -899,7 +898,7 @@ export function convertToGutenberg(html: string): { html: string; blockCount: nu
  * Apply policies
  */
 export function applyPolicies(
-  html: string, 
+  html: string,
   config: PolicyConfig = defaultPolicyConfig
 ): { html: string; triggered: string[]; warnings: string[] } {
   const $ = cheerio.load(html, {});
@@ -966,32 +965,32 @@ export function applyPolicies(
   if (config.removeAfterNoteSEO?.enabled) {
     let foundNoteSEO = false;
     let removedCount = 0;
-    
+
     // Find elements containing "NOTE SEO" text
     $('*').each((_, el) => {
       const $el = $(el);
       const text = $el.text();
-      
+
       // Check if this element contains "NOTE SEO" (case insensitive)
       if (!foundNoteSEO && /note\s*seo/i.test(text)) {
         // Check if this is the actual element with the text (not a parent)
         const directText = $el.clone().children().remove().end().text();
         if (/note\s*seo/i.test(directText) || $el.children().length === 0) {
           foundNoteSEO = true;
-          
+
           // Remove this element and all following siblings
           $el.nextAll().each((_, sibling) => {
             removedCount++;
             $(sibling).remove();
           });
-          
+
           // Remove the element itself
           removedCount++;
           $el.remove();
         }
       }
     });
-    
+
     if (removedCount > 0) {
       triggered.push('removeAfterNoteSEO');
       warnings.push(`ลบเนื้อหาหลัง "NOTE SEO Writer" จำนวน ${removedCount} รายการ`);
@@ -1018,7 +1017,7 @@ export function applyPolicies(
   // Disclaimer policy
   if (config.addDisclaimer.enabled) {
     const text = $.text().toLowerCase();
-    const foundKeywords = config.addDisclaimer.keywords.filter(kw => 
+    const foundKeywords = config.addDisclaimer.keywords.filter(kw =>
       text.includes(kw.toLowerCase())
     );
 
@@ -1072,10 +1071,10 @@ export function convert(
     const cssMap = extractStyles(inputHtml);
 
     // Step 2: Clean HTML
-    const forbiddenTags = options.policies?.forbiddenTags?.enabled 
-      ? options.policies.forbiddenTags.tags 
+    const forbiddenTags = options.policies?.forbiddenTags?.enabled
+      ? options.policies.forbiddenTags.tags
       : defaultPolicyConfig.forbiddenTags.tags;
-    
+
     const { html: cleanedHtml, removed } = cleanHTML(inputHtml, forbiddenTags);
     if (removed.length > 0) {
       warnings.push(`ลบแท็กที่ไม่ต้องการ: ${removed.join(', ')}`);

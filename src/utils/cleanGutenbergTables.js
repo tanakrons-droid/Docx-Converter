@@ -14,8 +14,22 @@ export function cleanGutenbergTables(html) {
   // ช่วยฟังก์ชันเล็ก ๆ
   const unwrapTagsInside = (root, selector) => {
     root.querySelectorAll(selector).forEach((el) => {
-      // อนุรักษ์ลูกทั้งหมด แล้วย้ายออกมาแทนที่ตัวห่อ
       const parent = el.parentNode;
+
+      // บันทึก alignment เก่าไว้
+      const style = el.getAttribute('style') || '';
+      const textAlignMatch = style.match(/text-align\s*:\s*(left|center|right|justify)/i);
+
+      // ถ้า parent เป็น th/td และไม่มี alignment ให้ใส่ตามลูก
+      if (textAlignMatch && parent && (parent.tagName === 'TD' || parent.tagName === 'TH')) {
+        const align = textAlignMatch[1].toLowerCase();
+        if (!parent.style.textAlign && !parent.classList.contains(`has-text-align-${align}`)) {
+          parent.style.textAlign = align;
+          parent.classList.add(`has-text-align-${align}`);
+        }
+      }
+
+      // อนุรักษ์ลูกทั้งหมด แล้วย้ายออกมาแทนที่ตัวห่อ
       while (el.firstChild) parent.insertBefore(el.firstChild, el);
       parent.removeChild(el);
     });
@@ -110,11 +124,8 @@ export function cleanGutenbergTables(html) {
     table.querySelectorAll('td, th').forEach((cell) => {
       unwrapTagsInside(cell, 'p, div, span, font');
 
-      // แทน <br> ด้วยช่องว่างเดียว (กันข้อความติดกัน)
-      toArray(cell.querySelectorAll('br')).forEach((br) => {
-        const space = document.createTextNode(' ');
-        br.parentNode.replaceChild(space, br);
-      });
+      // Preserve <br> tags, only remove extra whitespace
+      cell.innerHTML = cell.innerHTML.replace(/(&nbsp;)+/g, ' ').replace(/\s{2,}/g, ' ').trim();
 
       // ตัดช่องว่างเกิน
       cell.innerHTML = cell.innerHTML.replace(/\s+/g, ' ').trim();

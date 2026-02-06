@@ -5,7 +5,7 @@ import './assets/styles/style.css';
 import Home from './components/Home';
 import Html from './components/Html';
 import HtmlToGutenberg from './components/HtmlToGutenberg';
-import BBCode from './components/Bbcode';
+
 import BBCodeV1 from './components/Bbcodev1';
 import Content from './components/Content';
 import Scss from './components/Scss';
@@ -87,12 +87,7 @@ const App = () => {
                   <span className="nav-text">HTML to GB</span>
                 </NavLink>
               </li>
-              <li>
-                <NavLink to="/bbcode" className={({ isActive }) => isActive ? 'active' : ''} onClick={() => setIsActive(!isActive)}>
-                  <span className="nav-icon">💬</span>
-                  <span className="nav-text">BBCode</span>
-                </NavLink>
-              </li>
+
               <li>
                 <NavLink to="/bbcode-v1" className={({ isActive }) => isActive ? 'active' : ''} onClick={() => setIsActive(!isActive)}>
                   <span className="nav-icon">📝</span>
@@ -112,8 +107,8 @@ const App = () => {
                 </NavLink>
               </li>
               <li>
-                <button 
-                  onClick={() => { setOpenTools(true); setIsActive(false); }} 
+                <button
+                  onClick={() => { setOpenTools(true); setIsActive(false); }}
                   className={`nav-link-btn ${openTools ? 'active' : ''}`}
                   style={{
                     background: 'transparent',
@@ -141,7 +136,7 @@ const App = () => {
             <Route path="/" element={<Home />} />
             <Route path="/html" element={<Html />} />
             <Route path="/html-to-gutenberg" element={<HtmlToGutenberg />} />
-            <Route path="/bbcode" element={<BBCode />} />
+
             <Route path="/bbcode-v1" element={<BBCodeV1 />} />
             <Route path="/content" element={<Content />} />
             <Route path="/scss" element={<Scss />} />
@@ -149,9 +144,9 @@ const App = () => {
         </main>
 
         {/* FB Reels Modal */}
-        <FbReelsModal 
-          open={openFbReels} 
-          onClose={() => setOpenFbReels(false)} 
+        <FbReelsModal
+          open={openFbReels}
+          onClose={() => setOpenFbReels(false)}
         />
 
         {/* Image Resize Modal */}
@@ -176,8 +171,8 @@ const App = () => {
               width: 1200,
               color: '#e2e8f0'
             }}>
-              <button 
-                onClick={() => setOpenImageResize(false)} 
+              <button
+                onClick={() => setOpenImageResize(false)}
                 style={{
                   position: 'absolute',
                   top: 20,
@@ -203,7 +198,7 @@ const App = () => {
         )}
 
         {/* Tools Modal */}
-        <ToolsModal 
+        <ToolsModal
           isOpen={openTools}
           onClose={() => setOpenTools(false)}
           tools={tools}

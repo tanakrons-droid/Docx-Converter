@@ -58,14 +58,17 @@ export function addQAHeadingClass(html) {
 
   // Helper: Add class to element
   const addHeadtextClass = (element) => {
-    const existingClass = element.getAttribute('class');
-    if (existingClass) {
-      // Append headtext if not already present
-      if (!existingClass.includes('headtext')) {
-        element.setAttribute('class', existingClass + ' headtext');
-      }
+    if (element.classList) {
+      element.classList.add('headtext');
     } else {
-      element.setAttribute('class', 'headtext');
+      const existingClass = element.getAttribute('class');
+      if (existingClass) {
+        if (!existingClass.split(/\s+/).includes('headtext')) {
+          element.setAttribute('class', `${existingClass} headtext`);
+        }
+      } else {
+        element.setAttribute('class', 'headtext');
+      }
     }
   };
 

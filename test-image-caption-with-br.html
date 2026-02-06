@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Test Image Caption with BR and Mixed Spans</title>
+    <style>
+        .c34 {
+            text-align: center;
+        }
+
+        .c47 {
+            font-style: normal;
+        }
+
+        .c66 {
+            font-style: italic;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>Test Case: Image with Caption containing BR and Alt text</h2>
+
+    <!-- Image -->
+    <p style="text-align: center;">
+        <img src="https://example.com/image.jpg" alt="Lip Filler">
+    </p>
+
+    <!-- Caption with BR and Alt text in same paragraph -->
+    <p class="c34"><span class="c47">Example: Restylane Kysse</span><span class="c66"><br> Alt: Best Lip Filler
+            Brands</span></p>
+
+    <hr>
+
+    <h2>Expected Output</h2>
+    <p>Caption should be: "Example: Restylane Kysse" (without Alt text)</p>
+    <p>The caption should be in italic format</p>
+</body>
+
+</html>

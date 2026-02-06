@@ -61,19 +61,136 @@ function createYouTubeGutenbergBlock(url, caption = null) {
   `.trim();
 }
 
+// --- Helper functions สำหรับตรวจจับการจัดกลาง ---
+
+/**
+ * Extract alignment and generate Gutenberg classes
+ * Improved accuracy for Word/Google Docs styles
+ */
+function getAlignmentFromStyle(style, className = '', alignAttr = '') {
+  const s = (style || '').toLowerCase();
+  const c = (className || '').toLowerCase();
+  const a = (alignAttr || '').toLowerCase();
+
+  let align = null;
+
+  // 1. Check align attribute
+  if (['left', 'center', 'right', 'justify'].includes(a)) {
+    align = a;
+  }
+  // 2. Check style attribute (including mso- variants)
+  else {
+    const textAlignMatch = s.match(/(?:^|;)\s*(?:mso-)?text-align\s*:\s*(left|center|right|justify)\b/i);
+    if (textAlignMatch) {
+      align = textAlignMatch[1].toLowerCase();
+    }
+    // 3. Check for centered tables via margins
+    else if (s.includes('margin-left:auto') && s.includes('margin-right:auto')) {
+      align = 'center';
+    }
+    else if (s.match(/margin\s*:\s*[^;]*auto/i)) {
+      align = 'center';
+    }
+    // 4. Check class names
+    else if (/\b(has-text-align-center|text-center)\b/.test(c)) {
+      align = 'center';
+    } else if (/\b(has-text-align-right|text-right)\b/.test(c)) {
+      align = 'right';
+    } else if (/\b(has-text-align-left|text-left)\b/.test(c)) {
+      align = 'left';
+    } else if (/\b(has-text-align-justify)\b/.test(c)) {
+      align = 'justify';
+    }
+  }
+
+  const classNameResult = align && align !== 'left' ? `has-text-align-${align}` : '';
+  return { align, className: classNameResult };
+}
+
+/**
+ * Unified helper to get explicit alignment from a DOM element
+ */
+function getExplicitAlignment(el) {
+  if (!el) return { align: null, className: '' };
+
+  // First check the element itself
+  let result = getAlignmentFromStyle(
+    el.getAttribute('style') || '',
+    el.getAttribute('class') || '',
+    el.getAttribute('align') || ''
+  );
+
+  // If no alignment found and it's a table cell (td/th) or table, check child elements
+  if (!result.align && (el.tagName === 'TD' || el.tagName === 'TH' || el.tagName === 'TABLE')) {
+    // Check first child paragraph
+    const firstP = el.querySelector('p');
+    if (firstP) {
+      const pResult = getAlignmentFromStyle(
+        firstP.getAttribute('style') || '',
+        firstP.getAttribute('class') || '',
+        firstP.getAttribute('align') || ''
+      );
+      if (pResult.align) return pResult;
+    }
+
+    // Check all child elements briefly
+    const children = Array.from(el.children);
+    for (const child of children) {
+      const childResult = getAlignmentFromStyle(
+        child.getAttribute('style') || '',
+        child.getAttribute('class') || '',
+        child.getAttribute('align') || ''
+      );
+      if (childResult.align) return childResult;
+    }
+  }
+
+  return result;
+}
+
+// 1) ตรวจจับ "center" แบบชัดเจนที่ element นั้นเอง (ไม่อิง ancestor)
+// ใช้กับ heading และ paragraph ทั่วไป
+function isExplicitCentered(el) {
+  const { align } = getExplicitAlignment(el);
+  return align === 'center';
+}
+
+// 2) ตรวจจับ "center" แบบอนุโลม (ดู parent 1 ชั้น)
+// ใช้เฉพาะกับ caption ใต้รูป
+function isCaptionLikelyCentered(p) {
+  if (isExplicitCentered(p)) return true;
+  const parent = p && p.parentElement;
+  return !!(parent && isExplicitCentered(parent));
+}
+
+// === End helper functions for alignment ===
+
 // ✅ Image Detection and Conversion Functions
 function extractImageCaptionFromParagraph(p) {
   const html = p.innerHTML.trim();
   const style = p.getAttribute("style") || '';
+  const text = p.textContent.trim();
 
+  // If it starts and ends with quotes, it's a quote, not a caption
+  if (/^["“].*["”]$/.test(text)) return null;
+
+  // Check for Italic (Tag or Style)
   const isItalic =
     /<(em|i)(\s|>)/i.test(html) ||
     /font-style\s*:\s*italic/i.test(style) ||
     p.querySelector("em") ||
-    p.querySelector("i");
+    p.querySelector("i") ||
+    p.classList.contains('italic');
 
-  if (!isItalic) return null;
-  return html.replace(/<\/?p[^>]*>/g, '').trim();
+  // Check for Centered Alignment (Style or Class)
+  const isCentered = isExplicitCentered(p);
+
+  // Requirement: MUST be both Centered AND Italic
+  if (isCentered && isItalic) {
+    return html.replace(/<\/?p[^>]*>/g, '').trim();
+  }
+
+  return null;
 }
 
 function extractImageMetaFromTag(img, captionHTML = '') {
@@ -263,39 +380,57 @@ function Home() {
   const processLinks = (htmlString, selectedDomain) => {
     // ใช้ regex เพื่อหา <a> tags ทั้งหมดและแก้ไข
     const aTagRegex = /<a\s+([^>]*?)>/gi;
-    
+
     return htmlString.replace(aTagRegex, (match, attributes) => {
       // ดึง href attribute
       const hrefMatch = attributes.match(/href\s*=\s*["']([^"']+)["']/i);
       if (!hrefMatch) return match; // ไม่มี href
-      
+
       const href = hrefMatch[1];
-      
+
       // ถ้าเป็น internal link (เริ่มด้วย /, # หรือไม่มี protocol)
       if (href.startsWith('/') || href.startsWith('#') || !href.includes('://')) {
         return match; // ไม่ต้องแก้ไข
       }
-      
+
       try {
         const url = new URL(href);
-        const linkDomain = url.hostname.replace('www.', '');
+        const linkDomain = url.hostname.toLowerCase().replace('www.', '');
         const selectedDomainClean = selectedDomain.replace('www.', '');
-        
+
         // ถ้าเป็นโดเมนเดียวกัน ไม่ต้องแก้ไข
         if (linkDomain === selectedDomainClean) {
           return match;
         }
-        
-        // ถ้าไม่ใช่โดเมนเดียวกัน ให้เพิ่ม target="_blank" และ rel="noreferrer noopener"
+
+        // Internal domains whitelist
+        const vsquareDomains = [
+          'vsquareclinic.com', 'vsqclinic.com', 'vsquareconsult.com',
+          'vsquare.clinic', 'vsquare-under-eye.com', 'vsquareclinic.co',
+          'vsq-injector.com', 'en.vsquareclinic.com', 'cn.vsquareclinic.com',
+          'doctorvsquareclinic.com', 'drvsquare.com', 'monghaclinic.com',
+          'bestbrandclinic.com'
+        ];
+
+        const isInternal = vsquareDomains.some(d => linkDomain.includes(d));
+
+        // ถ้าไม่ใช่โดเมนเดียวกัน ให้เพิ่ม target="_blank" และ rel="..."
         let newAttributes = attributes;
-        
+
         // ลบ target และ rel เดิม (ถ้ามี)
         newAttributes = newAttributes.replace(/\s*target\s*=\s*["'][^"']*["']/gi, '');
         newAttributes = newAttributes.replace(/\s*rel\s*=\s*["'][^"']*["']/gi, '');
-        
-        // เพิ่ม target="_blank" และ rel="noreferrer noopener"
-        newAttributes += ' target="_blank" rel="noreferrer noopener"';
-        
+
+        // เพิ่ม target="_blank"
+        newAttributes += ' target="_blank"';
+
+        // เพิ่ม rel ตามความเหมาะสม
+        if (isInternal) {
+          newAttributes += ' rel="noreferrer noopener"';
+        } else {
+          newAttributes += ' rel="noreferrer noopener nofollow"';
+        }
+
         return `<a ${newAttributes}>`;
       } catch (e) {
         // ถ้า URL ไม่ valid ก็คืนค่าเดิม
@@ -309,42 +444,42 @@ function Home() {
     // ลบ <span> tags ทั้งหมด (เก็บเฉพาะเนื้อหาภายใน)
     html = html.replace(/<span[^>]*>/gi, '');
     html = html.replace(/<\/span>/gi, '');
-    
+
     // ลบ <font> tags ทั้งหมด (เก็บเฉพาะเนื้อหาภายใน)
     html = html.replace(/<font[^>]*>/gi, '');
     html = html.replace(/<\/font>/gi, '');
-    
+
     // ลบ inline style attributes ที่มาจาก Word/Docs
     // ลบ style ที่มี mso- prefix (Microsoft Office styles)
     html = html.replace(/\s*style="[^"]*mso-[^"]*"/gi, '');
-    
+
     // ลบ style attributes ที่มีคุณสมบัติที่ไม่ต้องการจาก Word/Docs
     html = html.replace(/\s*style="[^"]*font-family:\s*['"]?Times New Roman['"]?[^"]*"/gi, '');
     html = html.replace(/\s*style="[^"]*font-family:\s*['"]?Calibri['"]?[^"]*"/gi, '');
     html = html.replace(/\s*style="[^"]*font-family:\s*['"]?Arial['"]?[^"]*"/gi, '');
-    
+
     // ลบ style ที่มี background-color: white หรือ background: white
     html = html.replace(/\s*style="[^"]*background(?:-color)?:\s*(?:white|#ffffff|rgb\(255,\s*255,\s*255\))[^"]*"/gi, '');
-    
+
     // ลบ style ที่มี font-size จาก Word
     html = html.replace(/\s*style="[^"]*font-size:\s*\d+(?:\.\d+)?(?:pt|px)[^"]*"/gi, '');
-    
+
     // ลบ empty attributes และ whitespace ที่ไม่จำเป็น
     html = html.replace(/\s+class=""/gi, '');
     html = html.replace(/\s+id=""/gi, '');
     html = html.replace(/\s+style=""/gi, '');
-    
+
     // ลบ attributes ที่ไม่จำเป็นจาก Word/Docs
     html = html.replace(/\s+lang="[^"]*"/gi, '');
     html = html.replace(/\s+xml:lang="[^"]*"/gi, '');
-    
+
     // ลบ <p> tags ที่ wrap Gutenberg block comments
     html = html.replace(/<p>\s*(<!--[^>]*-->)\s*<\/p>/gi, '$1');
-    
+
     // ลบ empty tags ที่อาจเกิดจากการลบ span/font
     html = html.replace(/<p>\s*<\/p>/gi, '');
     html = html.replace(/<li>\s*<\/li>/gi, '');
-    
+
     return html;
   };
 
@@ -354,7 +489,7 @@ function Home() {
       alert('กรุณาเลือกเว็บไซต์ก่อนประมวลผล');
       return;
     }
-    
+
     // Flags
     const WP_EXPORT_MODE = true; // Prevents base64 image data -> avoids Gutenberg freeze
     const DEBUG = false; // Set to true to log stages in console
@@ -369,7 +504,7 @@ function Home() {
         _stages.push(`(log failed at ${name}: ${e && e.message})`);
       }
     };
-    
+
     if (!file) return;
     setIsLoading(true);
 
@@ -378,27 +513,38 @@ function Home() {
       const arrayBuffer = e.target.result;
       try {
         const options = {
-  styleMap: [
-    "u => u",
-    "r[style-name*='Underline'] => u",
-    // Alignment styles
-    "p[style-name='Center'] => p.has-text-align-center",
-    "p[style-name='Centered'] => p.has-text-align-center",
-    "p[style-name='center'] => p.has-text-align-center",
-    "p[style-name='centered'] => p.has-text-align-center"
-  ],
-  includeEmbeddedStyleMap: true,
-  convertImage: mammoth.images.imgElement(function(image) {
-    if (WP_EXPORT_MODE) return { src: "" };
-    return image.read("base64").then(function(buffer) {
-      var contentType = image.contentType || "image/png";
-      return { src: "data:" + contentType + ";base64," + buffer };
-    });
-  })
+          styleMap: [
+            "u => u",
+            "r[style-name*='Underline'] => u",
+            // Alignment styles
+            "p[style-name='Center'] => p.has-text-align-center",
+            "p[style-name='Centered'] => p.has-text-align-center",
+            "p[style-name='center'] => p.has-text-align-center",
+            "p[style-name='centered'] => p.has-text-align-center"
+          ],
+          includeEmbeddedStyleMap: true,
+          convertImage: mammoth.images.imgElement(function (image) {
+            if (WP_EXPORT_MODE) return { src: "" };
+            return image.read("base64").then(function (buffer) {
+              var contentType = image.contentType || "image/png";
+              return { src: "data:" + contentType + ";base64," + buffer };
+            });
+          })
         }
-_logStage('read file', arrayBuffer && ('ArrayBuffer ' + arrayBuffer.byteLength));
-const result = await mammoth.convertToHtml({ arrayBuffer }, options);
-_logStage('mammoth.convertToHtml()', (result && result.value) || '(no value)');
+        _logStage('read file', arrayBuffer && ('ArrayBuffer ' + arrayBuffer.byteLength));
+
+        // Debug JSZip error: Check file signature
+        if (arrayBuffer && arrayBuffer.byteLength > 4) {
+          const view = new Uint8Array(arrayBuffer);
+          const signature = String.fromCharCode(view[0], view[1]);
+          console.log('File signature:', signature, view[0], view[1], view[2], view[3]);
+          if (signature !== 'PK') {
+            console.warn('Warning: File does not start with PK (Zip signature). This might cause JSZip error.');
+          }
+        }
+
+        const result = await mammoth.convertToHtml({ arrayBuffer }, options);
+        _logStage('mammoth.convertToHtml()', (result && result.value) || '(no value)');
         let htmlString = result.value;
         _logStage('start postprocess', htmlString);
 
@@ -418,11 +564,11 @@ _logStage('mammoth.convertToHtml()', (result && result.value) || '(no value)');
             // Simple regex to match Gutenberg blocks
             const blockRegex = /<!-- wp:([^\s/]+)(?:\s+([^>]*))?\s*(?:\/)?-->([\s\S]*?)(?:<!-- \/wp:-->|$)/g;
             let match;
-            
+
             while ((match = blockRegex.exec(content)) !== null) {
               const blockName = match[1];
               let attributes = {};
-              
+
               try {
                 if (match[2] && match[2].trim().startsWith('{')) {
                   attributes = JSON.parse(match[2]);
@@ -430,9 +576,9 @@ _logStage('mammoth.convertToHtml()', (result && result.value) || '(no value)');
               } catch (e) {
                 // Ignore invalid JSON attributes
               }
-              
+
               const blockContent = match[3] || '';
-              
+
               // Extract text content for paragraphs
               let textContent = '';
               if (blockName === 'paragraph') {
@@ -441,26 +587,26 @@ _logStage('mammoth.convertToHtml()', (result && result.value) || '(no value)');
                   textContent = pMatch[1];
                 }
               }
-              
+
               const innerBlocks = parseBlocks(blockContent);
-              
+
               const block = createBlock(blockName, attributes, innerBlocks);
               if (textContent) {
                 block.content = textContent;
               }
-              
+
               blocks.push(block);
             }
-            
+
             return blocks;
           };
 
           const serializeBlocks = (blocks) => {
             return blocks.map(block => {
-              const attributesString = Object.keys(block.attributes).length > 0 
-                ? ' ' + JSON.stringify(block.attributes) 
+              const attributesString = Object.keys(block.attributes).length > 0
+                ? ' ' + JSON.stringify(block.attributes)
                 : '';
-              
+
               if (block.innerBlocks && block.innerBlocks.length > 0) {
                 const innerContent = serializeBlocks(block.innerBlocks);
                 return `<!-- wp:${block.name}${attributesString} -->${innerContent}<!-- /wp:${block.name} -->`;
@@ -491,25 +637,25 @@ _logStage('mammoth.convertToHtml()', (result && result.value) || '(no value)');
           if (process.env.NODE_ENV === 'development') {
             console.log('Parsed blocks:', parsedBlocks.map(b => ({ name: b.name, content: b.content?.substring(0, 50) })));
           }
-          
+
           // Process blocks to create row layouts from consecutive content patterns
           const processBlocks = (blocks) => {
             const processedBlocks = [];
             let i = 0;
-            
+
             while (i < blocks.length) {
               const currentBlock = blocks[i];
-              
+
               // Look for patterns that should become 2-column layouts
               // Pattern 1: Two consecutive paragraphs that look like they should be side by side
               if (currentBlock.name === 'paragraph' && i + 1 < blocks.length) {
                 const nextBlock = blocks[i + 1];
-                
+
                 if (nextBlock.name === 'paragraph') {
                   // Check if these paragraphs have similar characteristics (length, structure)
                   const currentText = currentBlock.content || '';
                   const nextText = nextBlock.content || '';
-                  
+
                   // More flexible criteria for creating 2-column layouts
                   // Look for paragraphs that are likely to be side-by-side content
                   const shouldCreateLayout = (
@@ -517,63 +663,63 @@ _logStage('mammoth.convertToHtml()', (result && result.value) || '(no value)');
                     currentText.length > 20 && nextText.length > 20 &&
                     // Either similar length OR both are short descriptions
                     (Math.abs(currentText.length - nextText.length) < Math.max(currentText.length, nextText.length) * 0.7 ||
-                     (currentText.length < 200 && nextText.length < 200))
+                      (currentText.length < 200 && nextText.length < 200))
                   );
-                  
+
                   if (shouldCreateLayout) {
                     if (process.env.NODE_ENV === 'development') {
                       console.log('Creating 2-column layout for:', currentText.substring(0, 30), '...and...', nextText.substring(0, 30));
                     }
-                    
+
                     // Create 2-column row layout with proper structure
                     const column1UniqueID = `70684_${Math.random().toString(36).substr(2, 9)}`;
                     const column2UniqueID = `70684_${Math.random().toString(36).substr(2, 9)}`;
                     const rowUniqueID = `70684_${Math.random().toString(36).substr(2, 9)}`;
-                    
+
                     const column1 = createBlock('kadence/column', {
-                      borderWidth: ["","","",""],
+                      borderWidth: ["", "", "", ""],
                       uniqueID: column1UniqueID,
-                      borderStyle: [{"top":["","",""],"right":["","",""],"bottom":["","",""],"left":["","",""],"unit":"px"}]
+                      borderStyle: [{ "top": ["", "", ""], "right": ["", "", ""], "bottom": ["", "", ""], "left": ["", "", ""], "unit": "px" }]
                     }, [
                       createBlock('image', {}),
                       currentBlock
                     ]);
-                    
+
                     const column2 = createBlock('kadence/column', {
-                      borderWidth: ["","","",""],
+                      borderWidth: ["", "", "", ""],
                       uniqueID: column2UniqueID,
-                      borderStyle: [{"top":["","",""],"right":["","",""],"bottom":["","",""],"left":["","",""],"unit":"px"}]
+                      borderStyle: [{ "top": ["", "", ""], "right": ["", "", ""], "bottom": ["", "", ""], "left": ["", "", ""], "unit": "px" }]
                     }, [
                       createBlock('image', {}),
                       nextBlock
                     ]);
-                    
+
                     const rowLayout = createBlock('kadence/rowlayout', {
                       uniqueID: rowUniqueID,
                       colLayout: "equal",
                       kbVersion: 2
                     }, [column1, column2]);
-                    
+
                     processedBlocks.push(rowLayout);
-                    
+
                     i += 2; // Skip both blocks as they're now part of the row layout
                     continue;
                   }
                 }
               }
-              
+
               // Pattern 2: Existing kadence/rowlayout with 2 sections - add images if missing
               if (currentBlock.name === 'kadence/rowlayout' && currentBlock.innerBlocks) {
-                const sections = currentBlock.innerBlocks.filter(innerBlock => 
+                const sections = currentBlock.innerBlocks.filter(innerBlock =>
                   innerBlock.name === 'kadence/column' || innerBlock.name === 'kadence/section'
                 );
-                
+
                 if (sections.length === 2) {
                   sections.forEach(section => {
-                    const hasParagraph = section.innerBlocks && section.innerBlocks.some(innerBlock => 
+                    const hasParagraph = section.innerBlocks && section.innerBlocks.some(innerBlock =>
                       innerBlock.name === 'core/paragraph'
                     );
-                    
+
                     if (hasParagraph && section.innerBlocks) {
                       const firstBlock = section.innerBlocks[0];
                       if (!firstBlock || (firstBlock.name !== 'core/image' && firstBlock.name !== 'core/gallery')) {
@@ -584,22 +730,22 @@ _logStage('mammoth.convertToHtml()', (result && result.value) || '(no value)');
                   });
                 }
               }
-              
+
               // Process inner blocks recursively
               if (currentBlock.innerBlocks && currentBlock.innerBlocks.length > 0) {
                 currentBlock.innerBlocks = processBlocks(currentBlock.innerBlocks);
               }
-              
+
               processedBlocks.push(currentBlock);
               i++;
             }
-            
+
             return processedBlocks;
           };
 
           // Process all blocks
           const processedBlocks = processBlocks(parsedBlocks);
-          
+
           // Serialize back to HTML string
           return serializeBlocks(processedBlocks);
         }
@@ -607,44 +753,14 @@ _logStage('mammoth.convertToHtml()', (result && result.value) || '(no value)');
         // Parse the HTML string to a DOM object
         const parser = new DOMParser();
         const doc = parser.parseFromString(htmlString, 'text/html');
-        
-        // === Helper functions สำหรับตรวจจับการจัดกลาง ===
-        
-        // 1) ตรวจจับ "center" แบบชัดเจนที่ element นั้นเอง (ไม่อิง ancestor)
-        // ใช้กับ heading และ paragraph ทั่วไป
-        function isExplicitCentered(el) {
-          if (!el || el.nodeType !== 1) return false;
-          const style = (el.getAttribute('style') || '').toLowerCase();
-          const align = (el.getAttribute('align') || '').toLowerCase();
-          const cls = (el.getAttribute('class') || '').toLowerCase();
-          
-          return (
-            align === 'center' ||
-            /(^|;)\s*text-align\s*:\s*center\b/.test(style) ||
-            /(^|;)\s*mso-text-align\s*:\s*center\b/.test(style) ||
-            /\bhas-text-align-center\b/.test(cls) ||
-            /\btext-center\b/.test(cls) ||
-            (el.style && el.style.textAlign === 'center') ||
-            (el.dataset && el.dataset.align === 'center')
-          );
-        }
-        
-        // 2) ตรวจจับ "center" แบบอนุโลม (ดู parent 1 ชั้น)
-        // ใช้เฉพาะกับ caption ใต้รูป
-        function isCaptionLikelyCentered(p) {
-          if (isExplicitCentered(p)) return true;
-          const parent = p && p.parentElement;
-          return !!(parent && isExplicitCentered(parent));
-        }
-        
-        // === End helper functions for alignment ===
+
 
         // === Normalize all alignment from Word styles and classes ===
         // ตรวจจับและทำให้ alignment เป็นมาตรฐานก่อนประมวลผลต่อ
         // ใช้ isExplicitCentered (ตรวจเฉพาะ element นั้นเอง)
         doc.querySelectorAll('p, h1, h2, h3, h4, h5, h6').forEach(el => {
           const isCentered = isExplicitCentered(el);
-          
+
           // บันทึกข้อมูลการจัดกลางไว้ใน dataset เพื่อใช้ในการประมวลผลต่อไป
           if (isCentered) {
             el.dataset.align = 'center';
@@ -653,28 +769,28 @@ _logStage('mammoth.convertToHtml()', (result && result.value) || '(no value)');
           }
         });
         // === End normalize alignment ===
-        
+
         // === รวมย่อหน้า (Shift+Enter) ===
         // รวม <p> ที่ต่อกันซึ่งควรเป็นบรรทัดใหม่ในย่อหน้าเดียว (Shift+Enter)
         (function mergeShiftEnterParagraphs() {
           const paragraphs = Array.from(doc.querySelectorAll('p'));
-          
+
           paragraphs.forEach((p, idx) => {
             const nextP = p.nextElementSibling;
-            
+
             // ไม่รวมถ้าไม่มี nextP หรือไม่ใช่ paragraph
             if (!nextP || nextP.tagName !== 'P') return;
-            
+
             // ไม่รวมถ้า alignment ของสอง paragraph ไม่เหมือนกัน
             const currentAlign = p.style.textAlign || p.dataset.align || '';
             const nextAlign = nextP.style.textAlign || nextP.dataset.align || '';
             if (currentAlign !== nextAlign) return;
-            
+
             // ไม่รวมถ้าเป็นส่วนของ table, list
             if (p.closest('table') || nextP.closest('table')) return;
             if (p.closest('ul') || p.closest('ol')) return;
             if (nextP.closest('ul') || nextP.closest('ol')) return;
-            
+
             // ไม่รวมถ้าเป็น special content
             const currentText = p.textContent.trim();
             const nextText = nextP.textContent.trim();
@@ -686,19 +802,19 @@ _logStage('mammoth.convertToHtml()', (result && result.value) || '(no value)');
             for (const pattern of specialPatterns) {
               if (currentText.startsWith(pattern) || nextText.startsWith(pattern)) return;
             }
-            
+
             // ไม่รวมถ้ามี image หรือ heading indicator
             if (p.querySelector('img') || nextP.querySelector('img')) return;
             if (/^H\s*:\s*[1-6]/i.test(currentText) || /^H\s*:\s*[1-6]/i.test(nextText)) return;
-            
+
             // ไม่รวมถ้าเป็น quote
             if (/^[""]/.test(currentText) || /^[""]/.test(nextText)) return;
-            
+
             // รวมถ้า p ตัวแรกลงท้ายด้วย <br> หรือทั้งสองข้อความค่อนข้างสั้น
             const currentHTML = p.innerHTML.trim();
             const hasTrailingBr = /<br\s*\/?>$/i.test(currentHTML);
             const isBothShort = currentText.length < 100 && nextText.length < 100;
-            
+
             if (hasTrailingBr || isBothShort) {
               // รวม paragraph ถัดไปเข้ากับ paragraph ปัจจุบัน
               if (hasTrailingBr) {
@@ -708,22 +824,22 @@ _logStage('mammoth.convertToHtml()', (result && result.value) || '(no value)');
                 // ไม่มี <br> เพิ่มเข้าไป
                 p.innerHTML = currentHTML + '<br>' + nextP.innerHTML;
               }
-              
+
               // คงค่า alignment หลังจากรวม
               if (currentAlign) {
                 p.style.textAlign = currentAlign;
                 p.dataset.align = currentAlign;
               }
-              
+
               nextP.remove();
             }
           });
         })();
         // === End รวมย่อหน้า (Shift+Enter) ===
-        
+
         // --- Underline normalization (CSS/MSO -> <u> on phrasing) ---
-        (function normalizeUnderline(doc){
-          const PHRASING = new Set(['A','ABBR','B','BDI','BDO','BR','CITE','CODE','DATA','DFN','EM','I','IMG','KBD','MARK','Q','RB','RP','RT','RTC','RUBY','S','SAMP','SMALL','SPAN','STRONG','SUB','SUP','TIME','U','VAR','WBR']);
+        (function normalizeUnderline(doc) {
+          const PHRASING = new Set(['A', 'ABBR', 'B', 'BDI', 'BDO', 'BR', 'CITE', 'CODE', 'DATA', 'DFN', 'EM', 'I', 'IMG', 'KBD', 'MARK', 'Q', 'RB', 'RP', 'RT', 'RTC', 'RUBY', 'S', 'SAMP', 'SMALL', 'SPAN', 'STRONG', 'SUB', 'SUP', 'TIME', 'U', 'VAR', 'WBR']);
           const underlineRe = /\btext-decoration(?:-line)?\s*:\s*underline\b/i;
           const msoRe = /\bmso-(?:text-)?underline\s*:\s*single\b/i;
           const hasUnderline = (style) => underlineRe.test(style) || msoRe.test(style);
@@ -768,7 +884,7 @@ _logStage('mammoth.convertToHtml()', (result && result.value) || '(no value)');
           });
         })(doc);
         // --- End Underline normalization ---
-    
+
 
         // console.log(doc);
 
@@ -790,7 +906,7 @@ _logStage('mammoth.convertToHtml()', (result && result.value) || '(no value)');
             previousSibling.remove();
             previousSibling = temp;
           }
-          
+
           const _nextEl = (articleStart && articleStart.nextElementSibling) ? articleStart.nextElementSibling : null;
           const _isNextTable = _nextEl && _nextEl.tagName && _nextEl.tagName.toLowerCase() === 'table';
           if (_isNextTable) {
@@ -803,14 +919,14 @@ _logStage('mammoth.convertToHtml()', (result && result.value) || '(no value)');
                   const columnUniqueID = `70684_${Math.random().toString(36).substr(2, 9)}`;
                   return `<!-- wp:kadence/column {"borderWidth":["","","",""],"uniqueID":"${columnUniqueID}","borderStyle":[{"top":["","",""],"right":["","",""],"bottom":["","",""],"left":["","",""],"unit":"px"}]} -->
 <div class="wp-block-kadence-column kadence-column${columnUniqueID}"><div class="kt-inside-inner-col"><!-- wp:image -->
-<figure class="wp-block-image"><img alt=""/></figure>
+<figure class="wp-block-image"><img src="" alt=""/></figure>
 <!-- /wp:image --></div></div>
 <!-- /wp:kadence/column -->`;
                 }).join('');
                 const rowUniqueID = `70684_${Math.random().toString(36).substr(2, 9)}`;
                 articleStart.outerHTML = `<!-- wp:kadence/rowlayout {"uniqueID":"${rowUniqueID}","colLayout":"equal","kbVersion":2} -->${headImgItems}<!-- /wp:kadence/rowlayout -->`;
               } else {
-                articleStart.outerHTML = `<!-- wp:image --><figure class="wp-block-image"><img alt=""/></figure><!-- /wp:image -->`;
+                articleStart.outerHTML = `<!-- wp:image --><figure class="wp-block-image"><img src="" alt=""/></figure><!-- /wp:image -->`;
               }
             } else {
               articleStart.remove(); // Remove the <h1></h1> itself
@@ -858,7 +974,7 @@ _logStage('mammoth.convertToHtml()', (result && result.value) || '(no value)');
               const isNextTable = ne && ne.nodeType === 1 && ne.tagName && ne.tagName.toLowerCase() === 'table';
               if (isNextTable) { p.remove(); return; }
             }
-          } catch (e) {}
+          } catch (e) { }
           // --- End guard ---
 
           // ---- YouTube link -> WP embed <figure> ----
@@ -887,7 +1003,7 @@ _logStage('mammoth.convertToHtml()', (result && result.value) || '(no value)');
               }
               return;
             }
-          } catch (e) {}
+          } catch (e) { }
           // ---- end YouTube link -> embed ----
 
           // Caption detection: ข้อความใต้รูป/ลิงก์คลิปที่เป็นตัวเอียง -> caption-img
@@ -895,26 +1011,31 @@ _logStage('mammoth.convertToHtml()', (result && result.value) || '(no value)');
             const prev = p.previousElementSibling;
             const html = (p.innerHTML || '').trim();
             const styleAttr = p.getAttribute('style') || '';
-            
+
             // ตรวจจับ italic
             const isItalicPara = (
-              /<(em|i)(\s|>)/i.test(html) || 
-              /font-style\s*:\s*italic/i.test(styleAttr)
+              /<(em|i)(\s|>)/i.test(html) ||
+              /font-style\s*:\s*italic/i.test(styleAttr) ||
+              p.classList.contains('italic')
             );
-            
-            // ตรวจสอบว่าอยู่ใต้รูปภาพหรือไม่
+
+            // ตรวจจับ center
+            const { align } = getExplicitAlignment(p);
+            const isCenteredPara = align === 'center';
+
+            // ตรวจสอบว่าอยู่ใต้รูปภาพหรือไม่ (Image Block: p, h1, h2, h3 ที่มี img)
             const hasImgAbove = prev && (
-              (prev.tagName && prev.tagName.toLowerCase() === 'figure' && prev.querySelector('img')) || 
-              (prev.querySelector && prev.querySelector('img'))
+              ((prev.tagName === 'P' || prev.tagName === 'H1' || prev.tagName === 'H2' || prev.tagName === 'H3') && prev.querySelector('img')) ||
+              (prev.tagName === 'FIGURE' && prev.querySelector('img'))
             );
-            
+
             // ตรวจสอบว่าอยู่ใต้บล็อกคลิป/ลิงก์ YouTube หรือไม่
             const hasVideoAbove = prev && (
               (prev.tagName && prev.tagName.toLowerCase() === 'figure' && prev.querySelector('iframe')) ||
               (prev.querySelector && prev.querySelector('iframe')) ||
               (prev.tagName && prev.tagName.toLowerCase() === 'div' && prev.querySelector('iframe'))
             );
-            
+
             // ตรวจสอบว่ามีลิงก์ youtube/vimeo อยู่ภายในหรือไม่
             const hasVideoLink = (
               /youtube\.com|youtu\.be|vimeo\.com/i.test(html) ||
@@ -922,32 +1043,34 @@ _logStage('mammoth.convertToHtml()', (result && result.value) || '(no value)');
               p.querySelector('a[href*="youtu.be"]') ||
               p.querySelector('a[href*="vimeo"]')
             );
-            
-            // ถ้าเป็น paragraph ที่เป็นตัวเอียง และอยู่ใต้รูป/คลิป หรือมีลิงก์คลิป ให้เป็น caption-img
-            if (!p.closest('table') && isItalicPara && (hasImgAbove || hasVideoAbove || hasVideoLink)) {
+
+            const hasUnderline = /<u(\s|>)/i.test(html) || /text-decoration\s*:\s*underline/i.test(styleAttr);
+
+            // Requirement: MUST be both Centered AND Italic AND (below image/video OR is video link)
+            if (!p.closest('table') && isItalicPara && isCenteredPara && !hasUnderline && (hasImgAbove || hasVideoAbove || hasVideoLink)) {
               // Extract text color from style (if not black)
               const colorMatch = styleAttr.match(/(?:^|;)\s*color\s*:\s*([^;]+)/i);
               const textColor = colorMatch ? colorMatch[1].trim() : null;
               const isBlackColor = !textColor || ['#000000', '#000', 'black', 'rgb(0, 0, 0)', 'rgb(0,0,0)'].includes(textColor.toLowerCase());
-              
+
               // Build caption-img block with color if available
               let captionAttrs = '"align":"center"';
               let captionClasses = 'has-text-align-center caption-img';
               let captionInlineStyle = '';
-              
+
               if (textColor && !isBlackColor) {
                 captionAttrs += `,"style":{"color":{"text":"${textColor}"},"elements":{"link":{"color":{"text":"${textColor}"}}}}`;
                 captionClasses += ' has-text-color has-link-color';
                 captionInlineStyle = ` style="color:${textColor}"`;
               }
-              
+
               p.outerHTML = `<!-- wp:paragraph {${captionAttrs}} --><p class="${captionClasses}"${captionInlineStyle}>${html}</p><!-- /wp:paragraph -->`;
               return;
             }
-          } catch (e) {}
-    
-          
-          
+          } catch (e) { }
+
+
+
           // Bold+Underline title above image => center it (skip tables). Allow up to 3 blank paragraphs in between.
           try {
             const htmlBU = (p.innerHTML || '').trim();
@@ -975,10 +1098,10 @@ _logStage('mammoth.convertToHtml()', (result && result.value) || '(no value)');
               p.outerHTML = `<!-- wp:paragraph {"align":"center"} --><p class="has-text-align-center">${html}</p><!-- /wp:paragraph -->`;
               return;
             }
-          } catch (e) {}
-// Skip paragraphs inside tables to avoid duplicate images
+          } catch (e) { }
+          // Skip paragraphs inside tables to avoid duplicate images
           if (p.closest && p.closest('table')) { return; }
-const tagImg = p.querySelectorAll('img');
+          const tagImg = p.querySelectorAll('img');
           let textContent = p.textContent.trim();
           const startsWithQuote = textContent.startsWith('"') || textContent.startsWith('"');
           const endsWithQuote = textContent.endsWith('"') || textContent.endsWith('"');
@@ -991,7 +1114,7 @@ const tagImg = p.querySelectorAll('img');
             // Ensure "สารบัญ" has proper format with <strong> tag
             const hasStrongTag = /<strong>.*?สารบัญ.*?<\/strong>/i.test(textHtml);
             let finalHtml = textHtml;
-            
+
             // If "สารบัญ" doesn't have <strong> tag, add it
             if (textContent.trim() === 'สารบัญ' && !hasStrongTag) {
               finalHtml = '<strong>สารบัญ</strong>';
@@ -999,16 +1122,16 @@ const tagImg = p.querySelectorAll('img');
               // Already has strong tag, keep as is
               finalHtml = textHtml;
             }
-            
+
             p.outerHTML = `<!-- wp:paragraph {"className":"subtext-gtb"} --><p class="subtext-gtb">${finalHtml}</p><!-- /wp:paragraph -->`;
           } else if ((!textContent && tagImg.length === 0) ||
-                     /^(Alt|alt|ALT)\s*:\s*/i.test(textContent) ||
-                     /\b(Alt|alt|ALT)\s*:\s*/i.test(textContent) ||
-                     /^(Alt|alt|ALT):/i.test(textContent) ||
-                     textContent.match(/(^|\s)(alt\s*:\s*|alt\s*:)/i) ||
-                     textContent.startsWith('(alt') ||
-                     textContent.startsWith('(Alt') ||
-                     textContent.startsWith('(ALT')) {
+            /^(Alt|alt|ALT)\s*:\s*/i.test(textContent) ||
+            /\b(Alt|alt|ALT)\s*:\s*/i.test(textContent) ||
+            /^(Alt|alt|ALT):/i.test(textContent) ||
+            textContent.match(/(^|\s)(alt\s*:\s*|alt\s*:)/i) ||
+            textContent.startsWith('(alt') ||
+            textContent.startsWith('(Alt') ||
+            textContent.startsWith('(ALT')) {
             p.remove();
           } else if (
             textContent.startsWith('อ่านบทความเพิ่มเติม') ||
@@ -1058,212 +1181,217 @@ const tagImg = p.querySelectorAll('img');
           } else if (textContent === 'บทความเจาะลึก' || textContent === 'บทความแนะนำ') {
             p.outerHTML = `<!-- wp:paragraph {"align":"center","className":"headline"} --><p class="has-text-align-center headline">${textHtml}</p><!-- /wp:paragraph -->`;
 
-          // ❌ DISABLED: YouTube logic เก่า - ใช้ logic ใหม่ที่ด้านบนแทน (บรรทัด 849-872)
-          /*
-          else if (textContent.match(/^\s*(https?:\/\/(www\.|m\.)?youtube\.com\/|https?:\/\/youtu\.be\/)/i)) {
-            // ตรวจจับและจัดการลิงก์ YouTube ตามกฎใหม่
-            let youtubeUrl = textContent.trim();
-
-            // ตรวจสอบว่ามี <img> อยู่ใกล้หรือในแท็ก <a> เดียวกันหรือไม่
-            const hasImgNearby = p.querySelector('img') !== null ||
-                                 p.querySelector('a img') !== null ||
-                                 (p.previousElementSibling && p.previousElementSibling.querySelector('img')) ||
-                                 (p.nextElementSibling && p.nextElementSibling.querySelector('img'));
-
-            // หากมี <img> อยู่ใกล้ ให้ข้ามการแปลง
-            if (hasImgNearby) {
-              // คงรูปแบบเดิมไว้
-              return;
-            }
-
-            // ตรวจสอบว่ามีข้อความในบรรทัดถัดไปหรือไม่
-            let captionText = '';
-            const nextP = p.nextElementSibling;
-            if (nextP && nextP.tagName && nextP.tagName.toLowerCase() === 'p') {
-              const nextText = nextP.textContent.trim();
-              const nextHtml = nextP.innerHTML.trim();
-
-              // ตรวจสอบว่าเป็นแคปชั่นหรือไม่ (ข้อความสั้นๆ และไม่ใช่ special content)
-              const isCaption = (
-                nextText.length > 0 &&
-                nextText.length < 200 &&
-                !nextText.startsWith('สารบัญ') &&
-                !nextText.startsWith('อ้างอิง') &&
-                !nextText.startsWith('สรุป') &&
-                !nextText.startsWith('Q&A') &&
-                !nextText.startsWith('FAQ') &&
-                !nextText.startsWith('อ่านเพิ่มเติม') &&
-                !nextText.startsWith('บทความ') &&
-                !nextText.match(/^H\s*:\s*[1-6]/i) && // ไม่ใช่ heading indicator
-                (nextHtml.includes('<em>') || nextHtml.includes('<i>') ||
-                 nextText.includes('แคปชั่น') || nextText.includes('caption') ||
-                 nextText.includes('เครดิต') || nextText.includes('credit'))
-              );
-
-              if (isCaption) {
-                captionText = nextHtml;
-                // ลบ paragraph ที่เป็นแคปชั่น
-                nextP.remove();
+            // ❌ DISABLED: YouTube logic เก่า - ใช้ logic ใหม่ที่ด้านบนแทน (บรรทัด 849-872)
+            /*
+            else if (textContent.match(/^\s*(https?:\/\/(www\.|m\.)?youtube\.com\/|https?:\/\/youtu\.be\/)/i)) {
+              // ตรวจจับและจัดการลิงก์ YouTube ตามกฎใหม่
+              let youtubeUrl = textContent.trim();
+  
+              // ตรวจสอบว่ามี <img> อยู่ใกล้หรือในแท็ก <a> เดียวกันหรือไม่
+              const hasImgNearby = p.querySelector('img') !== null ||
+                                   p.querySelector('a img') !== null ||
+                                   (p.previousElementSibling && p.previousElementSibling.querySelector('img')) ||
+                                   (p.nextElementSibling && p.nextElementSibling.querySelector('img'));
+  
+              // หากมี <img> อยู่ใกล้ ให้ข้ามการแปลง
+              if (hasImgNearby) {
+                // คงรูปแบบเดิมไว้
+                return;
               }
-            }
-
-            // สร้าง Gutenberg YouTube Embed Block พร้อมบรรทัดว่าง
-            let embedBlock = `
-
-<!-- wp:embed {"url":"${youtubeUrl}","type":"video","providerNameSlug":"youtube","responsive":true,"className":"wp-embed-aspect-16-9 wp-has-aspect-ratio"} -->
-<figure class="wp-block-embed is-type-video is-provider-youtube wp-block-embed-youtube wp-embed-aspect-16-9 wp-has-aspect-ratio">
-  <div class="wp-block-embed__wrapper">
-    ${youtubeUrl}
-  </div>`;
-
-            // เพิ่ม figcaption ถ้ามีแคปชั่น
-            if (captionText) {
-              embedBlock += `
-  <figcaption class="wp-element-caption">${captionText}</figcaption>`;
-            }
-
-            embedBlock += `
-</figure>
-<!-- /wp:embed -->
-
-`;
-
-            p.outerHTML = embedBlock;
-          else if (p.querySelector('a[href*="youtube.com"], a[href*="youtu.be"]')) {
-            // ตรวจจับลิงก์ YouTube ที่อยู่ใน <a> tag
-            const youtubeLink = p.querySelector('a[href*="youtube.com"], a[href*="youtu.be"]');
-            const youtubeUrl = youtubeLink.getAttribute('href');
-
-            // ตรวจสอบว่าลิงก์ YouTube อยู่ในแท็ก <a> ที่ครอบ <img> หรือไม่
-            const hasImgInLink = youtubeLink.querySelector('img') !== null;
-
-            // หากลิงก์ YouTube อยู่ในแท็ก <a> ที่ครอบ <img> ให้คงรูปแบบเดิมไว้
-            if (hasImgInLink) {
-              // คงรูปแบบเดิมไว้
-              return;
-            }
-
-            // ตรวจสอบว่ามี <img> อยู่ใกล้หรือไม่
-            const hasImgNearby = p.querySelector('img') !== null ||
-                                 (p.previousElementSibling && p.previousElementSibling.querySelector('img')) ||
-                                 (p.nextElementSibling && p.nextElementSibling.querySelector('img'));
-
-            // หากมี <img> อยู่ใกล้ ให้ข้ามการแปลง
-            if (hasImgNearby) {
-              // คงรูปแบบเดิมไว้
-              return;
-            }
-
-            // ตรวจสอบว่ามีข้อความในบรรทัดถัดไปหรือไม่
-            let captionText = '';
-            const nextP = p.nextElementSibling;
-            if (nextP && nextP.tagName && nextP.tagName.toLowerCase() === 'p') {
-              const nextText = nextP.textContent.trim();
-              const nextHtml = nextP.innerHTML.trim();
-
-              // ตรวจสอบว่าเป็นแคปชั่นหรือไม่ (ข้อความสั้นๆ และไม่ใช่ special content)
-              const isCaption = (
-                nextText.length > 0 &&
-                nextText.length < 200 &&
-                !nextText.startsWith('สารบัญ') &&
-                !nextText.startsWith('อ้างอิง') &&
-                !nextText.startsWith('สรุป') &&
-                !nextText.startsWith('Q&A') &&
-                !nextText.startsWith('FAQ') &&
-                !nextText.startsWith('อ่านเพิ่มเติม') &&
-                !nextText.startsWith('บทความ') &&
-                !nextText.match(/^H\s*:\s*[1-6]/i) && // ไม่ใช่ heading indicator
-                (nextHtml.includes('<em>') || nextHtml.includes('<i>') ||
-                 nextText.includes('แคปชั่น') || nextText.includes('caption') ||
-                 nextText.includes('เครดิต') || nextText.includes('credit'))
-              );
-
-              if (isCaption) {
-                captionText = nextHtml;
-                // ลบ paragraph ที่เป็นแคปชั่น
-                nextP.remove();
+  
+              // ตรวจสอบว่ามีข้อความในบรรทัดถัดไปหรือไม่
+              let captionText = '';
+              const nextP = p.nextElementSibling;
+              if (nextP && nextP.tagName && nextP.tagName.toLowerCase() === 'p') {
+                const nextText = nextP.textContent.trim();
+                const nextHtml = nextP.innerHTML.trim();
+  
+                // ตรวจสอบว่าเป็นแคปชั่นหรือไม่ (ข้อความสั้นๆ และไม่ใช่ special content)
+                const isCaption = (
+                  nextText.length > 0 &&
+                  nextText.length < 200 &&
+                  !nextText.startsWith('สารบัญ') &&
+                  !nextText.startsWith('อ้างอิง') &&
+                  !nextText.startsWith('สรุป') &&
+                  !nextText.startsWith('Q&A') &&
+                  !nextText.startsWith('FAQ') &&
+                  !nextText.startsWith('อ่านเพิ่มเติม') &&
+                  !nextText.startsWith('บทความ') &&
+                  !nextText.match(/^H\s*:\s*[1-6]/i) && // ไม่ใช่ heading indicator
+                  (nextHtml.includes('<em>') || nextHtml.includes('<i>') ||
+                   nextText.includes('แคปชั่น') || nextText.includes('caption') ||
+                   nextText.includes('เครดิต') || nextText.includes('credit'))
+                );
+  
+                if (isCaption) {
+                  captionText = nextHtml;
+                  // ลบ paragraph ที่เป็นแคปชั่น
+                  nextP.remove();
+                }
               }
-            }
-
-            // สร้าง Gutenberg YouTube Embed Block พร้อมบรรทัดว่าง
-            let embedBlock = `
-
-<!-- wp:embed {"url":"${youtubeUrl}","type":"video","providerNameSlug":"youtube","responsive":true,"className":"wp-embed-aspect-16-9 wp-has-aspect-ratio"} -->
-<figure class="wp-block-embed is-type-video is-provider-youtube wp-block-embed-youtube wp-embed-aspect-16-9 wp-has-aspect-ratio">
-  <div class="wp-block-embed__wrapper">
-    ${youtubeUrl}
-  </div>`;
-
-            // เพิ่ม figcaption ถ้ามีแคปชั่น
-            if (captionText) {
+  
+              // สร้าง Gutenberg YouTube Embed Block พร้อมบรรทัดว่าง
+              let embedBlock = `
+  
+  <!-- wp:embed {"url":"${youtubeUrl}","type":"video","providerNameSlug":"youtube","responsive":true,"className":"wp-embed-aspect-16-9 wp-has-aspect-ratio"} -->
+  <figure class="wp-block-embed is-type-video is-provider-youtube wp-block-embed-youtube wp-embed-aspect-16-9 wp-has-aspect-ratio">
+    <div class="wp-block-embed__wrapper">
+      ${youtubeUrl}
+    </div>`;
+  
+              // เพิ่ม figcaption ถ้ามีแคปชั่น
+              if (captionText) {
+                embedBlock += `
+    <figcaption class="wp-element-caption">${captionText}</figcaption>`;
+              }
+  
               embedBlock += `
-  <figcaption class="wp-element-caption">${captionText}</figcaption>`;
-            }
-
-            embedBlock += `
-</figure>
-<!-- /wp:embed -->
-
-`;
-
-            p.outerHTML = embedBlock;
-          */
+  </figure>
+  <!-- /wp:embed -->
+  
+  `;
+  
+              p.outerHTML = embedBlock;
+            else if (p.querySelector('a[href*="youtube.com"], a[href*="youtu.be"]')) {
+              // ตรวจจับลิงก์ YouTube ที่อยู่ใน <a> tag
+              const youtubeLink = p.querySelector('a[href*="youtube.com"], a[href*="youtu.be"]');
+              const youtubeUrl = youtubeLink.getAttribute('href');
+  
+              // ตรวจสอบว่าลิงก์ YouTube อยู่ในแท็ก <a> ที่ครอบ <img> หรือไม่
+              const hasImgInLink = youtubeLink.querySelector('img') !== null;
+  
+              // หากลิงก์ YouTube อยู่ในแท็ก <a> ที่ครอบ <img> ให้คงรูปแบบเดิมไว้
+              if (hasImgInLink) {
+                // คงรูปแบบเดิมไว้
+                return;
+              }
+  
+              // ตรวจสอบว่ามี <img> อยู่ใกล้หรือไม่
+              const hasImgNearby = p.querySelector('img') !== null ||
+                                   (p.previousElementSibling && p.previousElementSibling.querySelector('img')) ||
+                                   (p.nextElementSibling && p.nextElementSibling.querySelector('img'));
+  
+              // หากมี <img> อยู่ใกล้ ให้ข้ามการแปลง
+              if (hasImgNearby) {
+                // คงรูปแบบเดิมไว้
+                return;
+              }
+  
+              // ตรวจสอบว่ามีข้อความในบรรทัดถัดไปหรือไม่
+              let captionText = '';
+              const nextP = p.nextElementSibling;
+              if (nextP && nextP.tagName && nextP.tagName.toLowerCase() === 'p') {
+                const nextText = nextP.textContent.trim();
+                const nextHtml = nextP.innerHTML.trim();
+  
+                // ตรวจสอบว่าเป็นแคปชั่นหรือไม่ (ข้อความสั้นๆ และไม่ใช่ special content)
+                const isCaption = (
+                  nextText.length > 0 &&
+                  nextText.length < 200 &&
+                  !nextText.startsWith('สารบัญ') &&
+                  !nextText.startsWith('อ้างอิง') &&
+                  !nextText.startsWith('สรุป') &&
+                  !nextText.startsWith('Q&A') &&
+                  !nextText.startsWith('FAQ') &&
+                  !nextText.startsWith('อ่านเพิ่มเติม') &&
+                  !nextText.startsWith('บทความ') &&
+                  !nextText.match(/^H\s*:\s*[1-6]/i) && // ไม่ใช่ heading indicator
+                  (nextHtml.includes('<em>') || nextHtml.includes('<i>') ||
+                   nextText.includes('แคปชั่น') || nextText.includes('caption') ||
+                   nextText.includes('เครดิต') || nextText.includes('credit'))
+                );
+  
+                if (isCaption) {
+                  captionText = nextHtml;
+                  // ลบ paragraph ที่เป็นแคปชั่น
+                  nextP.remove();
+                }
+              }
+  
+              // สร้าง Gutenberg YouTube Embed Block พร้อมบรรทัดว่าง
+              let embedBlock = `
+  
+  <!-- wp:embed {"url":"${youtubeUrl}","type":"video","providerNameSlug":"youtube","responsive":true,"className":"wp-embed-aspect-16-9 wp-has-aspect-ratio"} -->
+  <figure class="wp-block-embed is-type-video is-provider-youtube wp-block-embed-youtube wp-embed-aspect-16-9 wp-has-aspect-ratio">
+    <div class="wp-block-embed__wrapper">
+      ${youtubeUrl}
+    </div>`;
+  
+              // เพิ่ม figcaption ถ้ามีแคปชั่น
+              if (captionText) {
+                embedBlock += `
+    <figcaption class="wp-element-caption">${captionText}</figcaption>`;
+              }
+  
+              embedBlock += `
+  </figure>
+  <!-- /wp:embed -->
+  
+  `;
+  
+              p.outerHTML = embedBlock;
+            */
           } else if (tagImg.length > 0) {
-            // 1) ตรวจจับว่า paragraph ถัดไปเป็นตัวเอียง = caption
-            const nextP = p.nextElementSibling;
+            // 1) ตรวจจับ paragraph ถัดไป
+            let $curr = p.nextElementSibling;
             let captionHTML = '';
-            if (nextP && nextP.tagName === 'P') {
-              const extracted = extractImageCaptionFromParagraph(nextP);
+            while ($curr && $curr.tagName === 'P') {
+              const text = $curr.textContent.trim();
+
+              // Stop if it's a heading indicator
+              if (/(?:h\s*[1-6]|h[1-6]|header\s*[1-6]|header\s*tag\s*[1-6])\s*:\s*/i.test(text)) break;
+              // Stop if it's other special markers
+              if (text.startsWith('สรุป') || text.startsWith('อ้างอิง')) break;
+
+              // Skip Alt lines but continue looking for caption
+              if (/^(Alt+|alt+)\s*:\s*/i.test(text)) {
+                $curr = $curr.nextElementSibling;
+                continue;
+              }
+
+              const extracted = extractImageCaptionFromParagraph($curr);
               if (extracted) {
                 captionHTML = extracted;
-                nextP.remove();
+                $curr.remove();
+                break;
               }
+              // If not Alt and not caption, stop here
+              break;
             }
 
-            // 2) หากเป็นรูปหลายรูป ให้ใช้ logic เดิม
+            // 2) หากเป็นรูปหลายรูป ให้ใช้ logic เดิม (แต่ใช้ captionHTML ที่หาได้)
             if (tagImg.length > 1) {
-              // Check for Alt: text in the paragraph
+              // Check for Alt: text in the main paragraph p
               let altText = '';
-              let captionText = '';
+              let inlineCaptionText = '';
               const paragraphText = textContent.trim();
 
-              // Enhanced Alt detection for "Alt:" and "Alt :" patterns in paragraphs
+              // Enhanced Alt detection for "Alt:" and "Alt :" patterns in main paragraph
               const altMatch = paragraphText.match(/(^|\s)(alt\s*:\s*|alt\s+:\s*)([^\n\r]*)/i);
               if (altMatch) {
                 altText = altMatch[3].trim();
-                // Remove Alt: text from main content for caption detection
+                // Check if remaining text should be treated as caption
                 const textWithoutAlt = paragraphText.replace(/(^|\s)(alt\s*:\s*|alt\s+:\s*)([^\n\r]*)/i, '').trim();
 
-                // Check if remaining text should be treated as caption
                 if (textWithoutAlt) {
-                  const isTextCentered = isCaptionLikelyCentered(p);
                   const isTextItalic = textHtml.includes('<em>') ||
-                                      textHtml.includes('<i>') ||
-                                      textHtml.includes('font-style: italic') ||
-                                      textHtml.includes('font-style:italic') ||
-                                      textHtml.includes('font-style : italic') ||
-                                      p.querySelector('em') !== null ||
-                                      p.querySelector('i') !== null;
+                    textHtml.includes('<i>') ||
+                    textHtml.includes('font-style: italic') ||
+                    p.querySelector('em') !== null ||
+                    p.querySelector('i') !== null ||
+                    p.classList.contains('italic');
 
+                  const isTextCentered = isExplicitCentered(p);
+
+                  // Requirement: MUST be both Centered AND Italic
                   if (isTextCentered && isTextItalic) {
-                    captionText = textWithoutAlt;
+                    inlineCaptionText = textWithoutAlt;
                   }
                 }
-              } else if (paragraphText) {
-                // Check if the text should be treated as a caption (centered and italic)
-                const isTextCentered = isCaptionLikelyCentered(p);
-                const isTextItalic = textHtml.includes('<em>') ||
-                                    textHtml.includes('<i>') ||
-                                    textHtml.includes('font-style: italic') ||
-                                    textHtml.includes('font-style:italic') ||
-                                    textHtml.includes('font-style : italic') ||
-                                    p.querySelector('em') !== null ||
-                                    p.querySelector('i') !== null;
-
-                if (isTextCentered && isTextItalic) {
-                  captionText = paragraphText;
-                }
               }
+
+              // Use found caption or inline caption
+              const finalCaption = captionHTML || inlineCaptionText;
 
               // ⭐ เก็บสำเนารูปก่อนลบทิ้ง เพื่อไม่ให้ข้อมูลหาย
               const imgs = Array.from(tagImg);
@@ -1272,23 +1400,11 @@ const tagImg = p.querySelectorAll('img');
               imgs.forEach(img => img.remove());
 
               // ใช้ imgs ที่สำรองไว้เพื่อสร้าง block
-              const newImgItems = imgs.map((img, imgIndex) => {
+              const newImgItems = imgs.map((img) => {
                 const columnUniqueID = `70684_${Math.random().toString(36).substr(2, 9)}`;
-                let columnContent = `<!-- wp:image -->
-<figure class="wp-block-image"><img alt="${altText}"/></figure>
-<!-- /wp:image -->`;
+                const columnContent = `<!-- wp:image -->\n<figure class="wp-block-image"><img src="" alt="${altText}"/></figure>\n<!-- /wp:image -->`;
 
-                // Add caption only to the first image if there's caption text
-                if (imgIndex === 0 && captionText) {
-                  columnContent += `
-<!-- wp:paragraph {"align":"center"} -->
-<p class="has-text-align-center">${captionText}</p>
-<!-- /wp:paragraph -->`;
-                }
-
-                return `<!-- wp:kadence/column {"borderWidth":["","","",""],"uniqueID":"${columnUniqueID}","borderStyle":[{"top":["","",""],"right":["","",""],"bottom":["","",""],"left":["","",""],"unit":"px"}]} -->
-<div class="wp-block-kadence-column kadence-column${columnUniqueID}"><div class="kt-inside-inner-col">${columnContent}</div></div>
-<!-- /wp:kadence/column -->`;
+                return `<!-- wp:kadence/column {"borderWidth":["","","",""],"uniqueID":"${columnUniqueID}","borderStyle":[{"top":["","",""],"right":["","",""],"bottom":["","",""],"left":["","",""],"unit":"px"}]} -->\n<div class="wp-block-kadence-column kadence-column${columnUniqueID}"><div class="kt-inside-inner-col">${columnContent}</div></div>\n<!-- /wp:kadence/column -->`;
               }).join('');
 
               const rowUniqueID = `70684_${Math.random().toString(36).substr(2, 9)}`;
@@ -1298,7 +1414,14 @@ const tagImg = p.querySelectorAll('img');
 
               // ⚠️ ตรวจสอบว่ายังมี parent ก่อนแก้ไข
               if (p.parentNode) {
-                p.outerHTML = `<!-- wp:kadence/rowlayout {"uniqueID":"${rowUniqueID}","colLayout":"equal","kbVersion":2} -->${newImgItems}<!-- /wp:kadence/rowlayout -->`;
+                let rowBlock = `<!-- wp:kadence/rowlayout {"uniqueID":"${rowUniqueID}","colLayout":"equal","kbVersion":2} -->${newImgItems}<!-- /wp:kadence/rowlayout -->`;
+
+                // Add caption after row layout if it exists
+                if (finalCaption) {
+                  rowBlock += `\n\n<!-- wp:paragraph {"align":"center"} -->\n<p class="has-text-align-center">${finalCaption}</p>\n<!-- /wp:paragraph -->`;
+                }
+
+                p.outerHTML = rowBlock;
               }
               return;
             }
@@ -1318,9 +1441,15 @@ const tagImg = p.querySelectorAll('img');
             return;
           } else if (startsWithQuote && endsWithQuote) {
             textContent = textContent.slice(1, -1).trim();
-            p.outerHTML = `<!-- wp:quote --><blockquote class="wp-block-quote"><!-- wp:paragraph --><p>${textContent}</p><!-- /wp:paragraph --></blockquote><!-- /wp:quote -->`;
+            const { align, className } = getExplicitAlignment(p);
+            const attrs = align ? ` {"align":"${align}"}` : '';
+            const blockClass = className ? ` class="wp-block-quote ${className}"` : ' class="wp-block-quote"';
+            p.outerHTML = `<!-- wp:quote${attrs} --><blockquote${blockClass}><!-- wp:paragraph --><p>${textContent}</p><!-- /wp:paragraph --></blockquote><!-- /wp:quote -->`;
           } else if (textContent.startsWith('ข้อควรรู้')) {
-            p.outerHTML = `<!-- wp:quote --><blockquote class="wp-block-quote"><!-- wp:paragraph --><p>${textContent}</p><!-- /wp:paragraph --></blockquote><!-- /wp:quote -->`;
+            const { align, className } = getExplicitAlignment(p);
+            const attrs = align ? ` {"align":"${align}"}` : '';
+            const blockClass = className ? ` class="wp-block-quote ${className}"` : ' class="wp-block-quote"';
+            p.outerHTML = `<!-- wp:quote${attrs} --><blockquote${blockClass}><!-- wp:paragraph --><p>${textContent}</p><!-- /wp:paragraph --></blockquote><!-- /wp:quote -->`;
           } else if (textContent === 'แอด Line@ เพื่อรับโปรโมชั่น' || textContent === 'แอด Line@ เพื่อรับโปรโมชัน') {
             const hasLink = p.querySelector('a') !== null;
             if (hasLink) {
@@ -1330,22 +1459,22 @@ const tagImg = p.querySelectorAll('img');
               p.outerHTML = `<!-- wp:paragraph {"align":"center","className":"headline"} --><p class="has-text-align-center headline">${textContent}</p><!-- /wp:paragraph --><!-- wp:buttons {"layout":{"type":"flex","justifyContent":"center"}} --><div class="wp-block-buttons"><!-- wp:button {"className":"btn-addline"} --><div class="wp-block-button btn-addline"><a class="wp-block-button__link wp-element-button">Add LINE</a></div><!-- /wp:button --></div><!-- /wp:buttons -->`;
             }
           } else {
-            // ตรวจจับการจัดกลางโดยใช้ isExplicitCentered (ตรวจเฉพาะ element นั้นเอง)
-            const isCentered = isExplicitCentered(p);
-            
+            // ตรวจจับการจัดตำแหน่งโดยใช้ getExplicitAlignment
+            const { align, className: alignClass } = getExplicitAlignment(p);
+
             if (checkReferences) {
-                // Check if paragraph is centered
-                if (isCentered) {
-                  p.outerHTML = `<!-- wp:paragraph {"align":"center","className":"references"} --><p class="has-text-align-center references">${textHtml}</p><!-- /wp:paragraph -->`;
-                } else {
-                  p.outerHTML = `<!-- wp:paragraph {"className":"references"} --><p class="references">${textHtml}</p><!-- /wp:paragraph -->`;
-              }
+              const classList = ['references'];
+              if (alignClass) classList.push(alignClass);
+              const classNameAttr = classList.join(' ');
+              const attrs = { className: 'references' };
+              if (align) attrs.align = align;
+
+              p.outerHTML = `<!-- wp:paragraph ${JSON.stringify(attrs)} --><p class="${classNameAttr}">${textHtml}</p><!-- /wp:paragraph -->`;
+            } else {
+              if (align) {
+                p.outerHTML = `<!-- wp:paragraph {"align":"${align}"} --><p class="${alignClass}">${textHtml}</p><!-- /wp:paragraph -->`;
               } else {
-                // Check if paragraph is centered
-                if (isCentered) {
-                  p.outerHTML = `<!-- wp:paragraph {"align":"center"} --><p class="has-text-align-center">${textHtml}</p><!-- /wp:paragraph -->`;
-                } else {
-                  p.outerHTML = `<!-- wp:paragraph --><p>${textHtml}</p><!-- /wp:paragraph -->`;
+                p.outerHTML = `<!-- wp:paragraph --><p>${textHtml}</p><!-- /wp:paragraph -->`;
               }
             }
           }
@@ -1359,12 +1488,12 @@ const tagImg = p.querySelectorAll('img');
             .replace(/\?/g, '')
             .replace(/\./g, '')
             .replace(/:/g, '')
-          .replace(/—/g, '-')
-          .replace(/–/g, '-')
-          .replace(/&amp;/g, '')
-          .trim()
-          .replace(/\s+/g, '-')
-          .replace(/[^\u0E00-\u0E7Fa-z0-9-]/g, '');
+            .replace(/—/g, '-')
+            .replace(/–/g, '-')
+            .replace(/&amp;/g, '')
+            .trim()
+            .replace(/\s+/g, '-')
+            .replace(/[^\u0E00-\u0E7Fa-z0-9-]/g, '');
         };
 
         // Process paragraphs that might contain H:1, H:2, H:3 indicators
@@ -1372,17 +1501,19 @@ const tagImg = p.querySelectorAll('img');
           const text = p.textContent.trim();
           // eslint-disable-next-line no-unused-vars
           const htmlContent = p.innerHTML.trim();
-          
+
           // Check if paragraph starts with H:1, H:2, H:3, H:4, H:5, or H:6
-          const headingMatch = text.match(/^H\s*:\s*([1-6])\s+(.+)$/i);
+          // More flexible heading indicator detection
+          const headingMatch = text.match(/^(?:h\s*[1-6]|h[1-6]|header\s*[1-6]|header\s*tag\s*[1-6])\s*[:\-]?\s*(.+)$/i);
           if (headingMatch) {
-            const level = headingMatch[1];
-            const headingText = headingMatch[2].trim();
-            
+            const levelMatch = text.match(/([1-6])/);
+            const level = levelMatch ? levelMatch[1] : '2'; // Fallback to H2
+            const headingText = headingMatch[1].trim();
+
             // Create a heading element
             const newHeading = doc.createElement(`h${level}`);
             newHeading.textContent = headingText;
-            
+
             // Replace paragraph with heading
             p.replaceWith(newHeading);
           }
@@ -1403,22 +1534,22 @@ const tagImg = p.querySelectorAll('img');
           const level = heading.tagName.toLowerCase();
           const levelNumber = level.match(/\d+/)[0];
           const headingContent = heading.innerHTML.trim();
-          let headingText = headingContent.replace(/1st/gi, '').replace(/(?:h[1-6]|h [1-6]|header tag [1-6]|header tag[1-6]|header[1-6]|header [1-6]) ?/gi, '').trim();
+          let headingText = headingContent.replace(/1st/gi, '').replace(/(?:h\s*[1-6]|h[1-6]|header\s*[1-6]|header\s*tag\s*[1-6])\s*[:\-]?\s*/gi, '').trim();
           if (headingText.startsWith(':')) {
             headingText = headingText.replace(':', '').trim();
           }
-          const hashTagId = generateHashId(headingText); 
+          const hashTagId = generateHashId(headingText);
           const tagImg = heading.querySelectorAll('img');
           const textOnly = headingText.replace(/<\/?[^>]+(>|$)/g, '');
-          
+
           // ตรวจจับการจัดกลางของ heading โดยใช้ isExplicitCentered (ตรวจเฉพาะ element นั้นเอง)
           const isHeadingCentered = isExplicitCentered(heading);
-          
+
           let blockSeparator = `<!-- wp:separator --><hr class="wp-block-separator has-alpha-channel-opacity"/><!-- /wp:separator -->`;
           let blockTarget = `<!-- wp:ps2id-block/target --><div class="wp-block-ps2id-block-target" id="${hashTagId}"></div><!-- /wp:ps2id-block/target -->`;
           let classBlock = `class="wp-block-heading"`;
           let attrLevel = ` {"level":${levelNumber}}`;
-          
+
           // เพิ่ม textAlign center ถ้า heading เป็นการจัดกลาง
           if (isHeadingCentered) {
             classBlock = `class="wp-block-heading has-text-align-center"`;
@@ -1458,38 +1589,38 @@ const tagImg = p.querySelectorAll('img');
             if (textOnly && tagImg.length > 0 && !_isNextTableHeading) {
               // Remove all img tags from this heading first to prevent duplicate processing
               tagImg.forEach(img => img.remove());
-              
+
               if (tagImg.length > 1) {
                 const newImgItems = Array.from(tagImg).map(img => {
                   const columnUniqueID = `70684_${Math.random().toString(36).substr(2, 9)}`;
                   return `<!-- wp:kadence/column {"borderWidth":["","","",""],"uniqueID":"${columnUniqueID}","borderStyle":[{"top":["","",""],"right":["","",""],"bottom":["","",""],"left":["","",""],"unit":"px"}]} -->
 <div class="wp-block-kadence-column kadence-column${columnUniqueID}"><div class="kt-inside-inner-col"><!-- wp:image -->
-<figure class="wp-block-image"><img alt=""/></figure>
+<figure class="wp-block-image"><img src="" alt=""/></figure>
 <!-- /wp:image --></div></div>
 <!-- /wp:kadence/column -->`;
                 }).join('');
                 const rowUniqueID = `70684_${Math.random().toString(36).substr(2, 9)}`;
                 gutenbergHeading = `${blockSeparator}${blockTarget}<!-- wp:heading${attrLevel} --><${level} ${classBlock}>${textOnly}</${level}><!-- /wp:heading --><!-- wp:kadence/rowlayout {"uniqueID":"${rowUniqueID}","colLayout":"equal","kbVersion":2} -->${newImgItems}<!-- /wp:kadence/rowlayout -->`;
               } else {
-                gutenbergHeading = `${blockSeparator}${blockTarget}<!-- wp:heading${attrLevel} --><${level} ${classBlock}>${textOnly}</${level}><!-- /wp:heading --><!-- wp:image --><figure class="wp-block-image"><img alt=""/></figure><!-- /wp:image -->`;
+                gutenbergHeading = `${blockSeparator}${blockTarget}<!-- wp:heading${attrLevel} --><${level} ${classBlock}>${textOnly}</${level}><!-- /wp:heading --><!-- wp:image --><figure class="wp-block-image"><img src="" alt=""/></figure><!-- /wp:image -->`;
               }
             } else if (!textOnly && tagImg.length > 0 && !_isNextTableHeading) {
               // Remove all img tags from this heading first to prevent duplicate processing
               tagImg.forEach(img => img.remove());
-              
+
               if (tagImg.length > 1) {
                 const newImgItems = Array.from(tagImg).map(img => {
                   const columnUniqueID = `70684_${Math.random().toString(36).substr(2, 9)}`;
                   return `<!-- wp:kadence/column {"borderWidth":["","","",""],"uniqueID":"${columnUniqueID}","borderStyle":[{"top":["","",""],"right":["","",""],"bottom":["","",""],"left":["","",""],"unit":"px"}]} -->
 <div class="wp-block-kadence-column kadence-column${columnUniqueID}"><div class="kt-inside-inner-col"><!-- wp:image -->
-<figure class="wp-block-image"><img alt=""/></figure>
+<figure class="wp-block-image"><img src="" alt=""/></figure>
 <!-- /wp:image --></div></div>
 <!-- /wp:kadence/column -->`;
                 }).join('');
                 const rowUniqueID = `70684_${Math.random().toString(36).substr(2, 9)}`;
                 gutenbergHeading = `<!-- wp:kadence/rowlayout {"uniqueID":"${rowUniqueID}","colLayout":"equal","kbVersion":2} -->${newImgItems}<!-- /wp:kadence/rowlayout -->`;
               } else {
-                gutenbergHeading = `<!-- wp:image --><figure class="wp-block-image"><img alt=""/></figure><!-- /wp:image -->`;
+                gutenbergHeading = `<!-- wp:image --><figure class="wp-block-image"><img src="" alt=""/></figure><!-- /wp:image -->`;
               }
             } else {
               // Special heading patterns
@@ -1504,7 +1635,7 @@ const tagImg = p.querySelectorAll('img');
               } else if (textOnly === 'สรุป' || textOnly.startsWith('สรุป')) {
                 // "สรุป" heading with subtext-gtb class
                 // เช็คว่าเป็น centered หรือไม่
-                  if (isHeadingCentered) {
+                if (isHeadingCentered) {
                   if (level === 'h2') {
                     attrLevel = ` {"textAlign":"center","className":"subtext-gtb"}`;
                     classBlock = `class="wp-block-heading has-text-align-center subtext-gtb"`;
@@ -1512,11 +1643,11 @@ const tagImg = p.querySelectorAll('img');
                     attrLevel = ` {"textAlign":"center","level":3,"className":"subtext-gtb"}`;
                     classBlock = `class="wp-block-heading has-text-align-center subtext-gtb"`;
                   }
-                  } else {
+                } else {
                   if (level === 'h2') {
                     attrLevel = ` {"className":"subtext-gtb"}`;
                     classBlock = `class="wp-block-heading subtext-gtb"`;
-                } else if (level === 'h3') {
+                  } else if (level === 'h3') {
                     attrLevel = ` {"level":3,"className":"subtext-gtb"}`;
                     classBlock = `class="wp-block-heading subtext-gtb"`;
                   }
@@ -1534,7 +1665,7 @@ const tagImg = p.querySelectorAll('img');
                 // For h3 - always include target (unlike h2)
                 if (textOnly === 'สรุป' || textOnly.startsWith('สรุป')) {
                   // "สรุป" h3 gets separator + target
-                    gutenbergHeading = `${blockSeparator}${blockTarget}<!-- wp:heading${attrLevel} --><${level} ${classBlock}>${textOnly}</${level}><!-- /wp:heading -->`;
+                  gutenbergHeading = `${blockSeparator}${blockTarget}<!-- wp:heading${attrLevel} --><${level} ${classBlock}>${textOnly}</${level}><!-- /wp:heading -->`;
                 } else {
                   gutenbergHeading = `${blockTarget}<!-- wp:heading${attrLevel} --><${level} ${classBlock}>${textOnly}</${level}><!-- /wp:heading -->`;
                 }
@@ -1548,7 +1679,7 @@ const tagImg = p.querySelectorAll('img');
 
 
         // (Function createRowLayoutFromContent moved above to be called before DOM parsing)
-        
+
 
         // Cleanup: remove images accidentally embedded inside headings (keep other images)
         doc.querySelectorAll('h1 img, h2 img, h3 img, h4 img, h5 img, h6 img').forEach(img => { img.remove(); });
@@ -1557,37 +1688,37 @@ const tagImg = p.querySelectorAll('img');
         (function convertCheckmarkToList() {
           // หา paragraphs ทั้งหมดที่อยู่ใน body
           const allParagraphs = Array.from(doc.querySelectorAll('p'));
-          
+
           let i = 0;
           while (i < allParagraphs.length) {
             const paragraph = allParagraphs[i];
-            
+
             // ข้าม paragraphs ที่ถูกลบหรือไม่มี parent
             if (!paragraph.parentNode) {
               i++;
               continue;
             }
-            
+
             const text = paragraph.textContent.trim();
-            
+
             // ตรวจสอบว่าขึ้นต้นด้วย ✓ หรือไม่
             if (text.startsWith('✓')) {
               // เก็บรวม paragraphs ที่มี ✓ ต่อเนื่องกัน
               const checkmarkParagraphs = [paragraph];
               let currentIndex = i + 1;
-              
+
               // หาย่อหน้าถัดไปที่มี ✓ ต่อเนื่องกัน
               while (currentIndex < allParagraphs.length) {
                 const nextP = allParagraphs[currentIndex];
-                
+
                 // ข้าม paragraphs ที่ถูกลบหรือไม่มี parent
                 if (!nextP.parentNode) {
                   currentIndex++;
                   continue;
                 }
-                
+
                 const nextText = nextP.textContent.trim();
-                
+
                 if (nextText.startsWith('✓')) {
                   // ตรวจสอบว่า nextP อยู่ใกล้กับ paragraph ก่อนหน้าหรือไม่
                   // (อนุญาตให้มี comment nodes หรือ whitespace ระหว่างทาง)
@@ -1595,7 +1726,7 @@ const tagImg = p.querySelectorAll('img');
                   let sibling = lastP.nextSibling;
                   let foundNext = false;
                   let hasBlockingElement = false;
-                  
+
                   while (sibling) {
                     if (sibling === nextP) {
                       foundNext = true;
@@ -1608,7 +1739,7 @@ const tagImg = p.querySelectorAll('img');
                     }
                     sibling = sibling.nextSibling;
                   }
-                  
+
                   if (foundNext && !hasBlockingElement) {
                     checkmarkParagraphs.push(nextP);
                     currentIndex++;
@@ -1619,12 +1750,12 @@ const tagImg = p.querySelectorAll('img');
                   break; // พบ paragraph ที่ไม่มี ✓ หยุด
                 }
               }
-              
+
               // สร้าง <ul class="correctlist">
               if (checkmarkParagraphs.length > 0) {
                 const ul = doc.createElement('ul');
                 ul.setAttribute('class', 'correctlist');
-                
+
                 checkmarkParagraphs.forEach(p => {
                   const li = doc.createElement('li');
                   // ลบเครื่องหมาย ✓ ออกจาก innerHTML
@@ -1633,23 +1764,23 @@ const tagImg = p.querySelectorAll('img');
                   li.innerHTML = content;
                   ul.appendChild(li);
                 });
-                
+
                 // แทนที่ paragraph แรกด้วย <ul>
                 checkmarkParagraphs[0].replaceWith(ul);
-                
+
                 // ลบ paragraphs ที่เหลือ
                 for (let j = 1; j < checkmarkParagraphs.length; j++) {
                   if (checkmarkParagraphs[j].parentNode) {
                     checkmarkParagraphs[j].remove();
                   }
                 }
-                
+
                 // ข้ามไปยัง paragraph ถัดไปที่ยังไม่ได้ประมวลผล
                 i = currentIndex;
                 continue;
               }
             }
-            
+
             i++;
           }
         })();
@@ -1658,7 +1789,7 @@ const tagImg = p.querySelectorAll('img');
         function convertSubListToGutenberg(ul, tag, classPrev, isDashed = false, hasCorrectlist = false) {
           let tagComment = '<!-- wp:list -->';
           let classNames = [];
-          
+
           if (classPrev === 'references') {
             classNames.push('references');
           }
@@ -1668,18 +1799,18 @@ const tagImg = p.querySelectorAll('img');
           if (hasCorrectlist) {
             classNames.push('correctlist');
           }
-          
+
           if (classNames.length > 0) {
             tagComment = `<!-- wp:list {"className":"${classNames.join(' ')}"} -->`;
           }
-          
-          if(tag === 'ol') {
+
+          if (tag === 'ol') {
             tagComment = '<!-- wp:list {"ordered":true} -->';
             if (classNames.length > 0) {
               tagComment = `<!-- wp:list {"ordered":true,"className":"${classNames.join(' ')}"} -->`;
             }
           }
-          
+
           // Clean link text to match heading text format (for href replacement)
           const cleanLinkText = (text) => {
             if (!text) return '';
@@ -1689,19 +1820,19 @@ const tagImg = p.querySelectorAll('img');
               .replace(/1st/gi, '')
               .replace(/(?:h\s*[1-6]|h\s+[1-6]|header\s*tag\s*[1-6]|header\s*[1-6]) ?:?\s*/gi, '')  // h2, h 2, header tag 2, header 2
               .trim();
-            
+
             // Remove leading colon again after other replacements
             while (cleaned.startsWith(':')) {
               cleaned = cleaned.substring(1).trim();
             }
-            
+
             return cleaned;
           };
-          
+
           const newListItems = Array.from(ul.querySelectorAll('li')).map(li => {
             let liContent = li.innerHTML;
             const aTag = li.querySelector('a');
-            
+
             // Replace Google Docs style href with hash ID from link text
             if (aTag && aTag.textContent && aTag.textContent.trim()) {
               const rawLinkText = aTag.textContent.trim();
@@ -1710,10 +1841,10 @@ const tagImg = p.querySelectorAll('img');
               // Replace any href (Google Docs style or other)
               liContent = liContent.replace(/href="[^"]*"/, `href="#${newHref}"`);
             }
-            
+
             return `<!-- wp:list-item --><li>${liContent}</li><!-- /wp:list-item -->`;
           }).join('');
-          
+
           const classAttr = classNames.length > 0 ? ` class="${classNames.join(' ')}"` : '';
           return `${tagComment}<${tag}${classAttr}>${newListItems}</${tag}><!-- /wp:list -->`;
         }
@@ -1730,16 +1861,16 @@ const tagImg = p.querySelectorAll('img');
             return count;
           };
           const totalItems = countItems(ul);
-          
+
           // Check if this is a dashed list (items starting with "- ")
           const isDashed = Array.from(ul.children).some(li => {
             const text = li.textContent.trim();
             return text.startsWith('- ');
           });
-          
+
           // ตรวจสอบว่ามี class="correctlist" อยู่แล้วหรือไม่
           const hasCorrectlist = ul.classList.contains('correctlist');
-          
+
           let classNames = [];
           if (classPrev === 'references') {
             classNames.push('references');
@@ -1754,19 +1885,19 @@ const tagImg = p.querySelectorAll('img');
           if (totalItems > 5 && !hasCorrectlist) {
             classNames.push('two-column');
           }
-          
+
           let tagComment = '<!-- wp:list -->';
           if (classNames.length > 0) {
             tagComment = `<!-- wp:list {"className":"${classNames.join(' ')}"} -->`;
           }
-          
-          if(tag === 'ol') {
+
+          if (tag === 'ol') {
             tagComment = '<!-- wp:list {"ordered":true} -->';
             if (classNames.length > 0) {
               tagComment = `<!-- wp:list {"ordered":true,"className":"${classNames.join(' ')}"} -->`;
             }
           }
-          
+
           // Clean link text to match heading text format (for href replacement)
           const cleanLinkText = (text) => {
             if (!text) return '';
@@ -1776,19 +1907,19 @@ const tagImg = p.querySelectorAll('img');
               .replace(/1st/gi, '')
               .replace(/(?:h\s*[1-6]|h\s+[1-6]|header\s*tag\s*[1-6]|header\s*[1-6]) ?:?\s*/gi, '')  // h2, h 2, header tag 2, header 2
               .trim();
-            
+
             // Remove leading colon again after other replacements
             while (cleaned.startsWith(':')) {
               cleaned = cleaned.substring(1).trim();
             }
-            
+
             return cleaned;
           };
-          
+
           const listItems = Array.from(ul.children).map(li => {
             const nestedUl = li.querySelector('ul');
             const aTag = li.querySelector('a');
-            
+
             if (nestedUl) {
               const listSubItems = convertSubListToGutenberg(nestedUl, tag, classPrev, isDashed, hasCorrectlist);
               nestedUl.remove();
@@ -1797,7 +1928,7 @@ const tagImg = p.querySelectorAll('img');
               if (isDashed) {
                 liContent = liContent.replace(/^-\s*/, '');
               }
-              
+
               // Replace Google Docs style href with hash ID from link text
               if (aTag && aTag.textContent && aTag.textContent.trim()) {
                 const rawLinkText = aTag.textContent.trim();
@@ -1806,7 +1937,7 @@ const tagImg = p.querySelectorAll('img');
                 // Replace any href (Google Docs style or other)
                 liContent = liContent.replace(/href="[^"]*"/, `href="#${newHref}"`);
               }
-              
+
               return `<!-- wp:list-item --><li>${liContent}${listSubItems}</li><!-- /wp:list-item -->`;
             }
             // Remove "- " prefix if it's a dashed list
@@ -1814,7 +1945,7 @@ const tagImg = p.querySelectorAll('img');
             if (isDashed) {
               liContent = liContent.replace(/^-\s*/, '');
             }
-            
+
             // Replace Google Docs style href with hash ID from link text
             if (aTag && aTag.textContent && aTag.textContent.trim()) {
               const rawLinkText = aTag.textContent.trim();
@@ -1823,20 +1954,20 @@ const tagImg = p.querySelectorAll('img');
               // Replace any href (Google Docs style or other)
               liContent = liContent.replace(/href="[^"]*"/, `href="#${newHref}"`);
             }
-            
+
             return `<!-- wp:list-item --><li>${liContent}</li><!-- /wp:list-item -->`;
           }).join('');
-          
+
           const classAttr = classNames.length > 0 ? ` class="${classNames.join(' ')}"` : '';
           return `${tagComment}<${tag}${classAttr}>${listItems}</${tag}><!-- /wp:list -->`;
         }
 
         function convertSubListToMenu(ul, tag, listItemCount) {
           let tagComment = '<!-- wp:list -->';
-          if(tag === 'ol') {
+          if (tag === 'ol') {
             tagComment = '<!-- wp:list {"ordered":true} -->';
           }
-          
+
           // Clean link text to match heading text format (for href replacement)
           const cleanLinkText = (text) => {
             if (!text) return '';
@@ -1846,15 +1977,15 @@ const tagImg = p.querySelectorAll('img');
               .replace(/1st/gi, '')
               .replace(/(?:h\s*[1-6]|h\s+[1-6]|header\s*tag\s*[1-6]|header\s*[1-6]) ?:?\s*/gi, '')  // h2, h 2, header tag 2, header 2
               .trim();
-            
+
             // Remove leading colon again after other replacements
             while (cleaned.startsWith(':')) {
               cleaned = cleaned.substring(1).trim();
             }
-            
+
             return cleaned;
           };
-          
+
           const newListItems = Array.from(ul.children).map(li => {
             let liContent = li.innerHTML;
             const aTag = li.querySelector('a');
@@ -1881,7 +2012,7 @@ const tagImg = p.querySelectorAll('img');
             return count;
           };
           const totalItems = countItems(ul);
-          
+
           // Determine if should add two-column class (only if > 5 items)
           let tagComment = '<!-- wp:list -->';
           if (totalItems > 5) {
@@ -1889,15 +2020,15 @@ const tagImg = p.querySelectorAll('img');
           } else {
             tagComment = '<!-- wp:list {"className":"listmenu"} -->';
           }
-          
-          if(tag === 'ol') {
+
+          if (tag === 'ol') {
             if (totalItems > 5) {
               tagComment = '<!-- wp:list {"ordered":true,"className":"listmenu two-column"} -->';
             } else {
               tagComment = '<!-- wp:list {"ordered":true,"className":"listmenu"} -->';
             }
           }
-          
+
           // Clean link text to match heading text format (for href replacement)
           const cleanLinkText = (text) => {
             if (!text) return '';
@@ -1907,19 +2038,19 @@ const tagImg = p.querySelectorAll('img');
               .replace(/1st/gi, '')
               .replace(/(?:h\s*[1-6]|h\s+[1-6]|header\s*tag\s*[1-6]|header\s*[1-6]) ?:?\s*/gi, '')  // h2, h 2, header tag 2, header 2
               .trim();
-            
+
             // Remove leading colon again after other replacements
             while (cleaned.startsWith(':')) {
               cleaned = cleaned.substring(1).trim();
             }
-            
+
             return cleaned;
           };
-          
+
           const listItems = Array.from(ul.children).map(li => {
             const nestedUl = li.querySelector('ul');
             const aTag = li.querySelector('a');
-            
+
             if (nestedUl) {
               // Process nested list first
               const listSubItems = convertSubListToMenu(nestedUl, tag, totalItems);
@@ -1946,12 +2077,12 @@ const tagImg = p.querySelectorAll('img');
               return `<!-- wp:list-item --><li>${liContent}</li><!-- /wp:list-item -->`;
             }
           }).join('');
-          
+
           // Apply class to opening tag
-          const openingTag = totalItems > 5 ? 
-            `<${tag} class="listmenu two-column">` : 
+          const openingTag = totalItems > 5 ?
+            `<${tag} class="listmenu two-column">` :
             `<${tag} class="listmenu">`;
-          
+
           return `${tagComment}${openingTag}${listItems}</${tag}><!-- /wp:list -->`;
         }
 
@@ -1991,33 +2122,63 @@ const tagImg = p.querySelectorAll('img');
             const hasText = (cell.textContent || '').trim().length > 0;
             return hasImage || hasText;
           });
-          
+
           // First, check if any cell contains special "click" text that should become buttons
           const hasClickText = cellsWithContent.some(cell => {
             const fullText = (cell.textContent || '').trim();
             return /^(คลิก|คลิกดู|คลิกดูข้อมูล|คลิกดูข้อมูลคลินิกเพิ่มเติม|คลิกเพื่อดูข้อมูล)/i.test(fullText);
           });
-          
+
           // If table contains "click" text, convert it to buttons regardless of images
           if (hasClickText) {
+            const isBestBrand = selectedWebsite === 'bestbrandclinic.com';
+
             const buttonBlocks = cellsWithContent.map(cell => {
               const fullText = (cell.textContent || '').trim();
               const isClickText = /^(คลิก|คลิกดู|คลิกดูข้อมูล|คลิกดูข้อมูลคลินิกเพิ่มเติม|คลิกเพื่อดูข้อมูล)/i.test(fullText);
-              
+
               if (isClickText) {
                 const aTag = cell.querySelector('a');
                 const buttonUrl = aTag ? (aTag.getAttribute('href') || '') : '';
                 const buttonText = fullText;
-                
-                return `<!-- wp:button -->
-<div class="wp-block-button"><a class="wp-block-button__link wp-element-button" href="${buttonUrl}">${buttonText}</a></div>
+
+                let targetAttr = '';
+                let relAttr = '';
+
+                if (buttonUrl) {
+                  targetAttr = ' target="_blank"';
+                  // Internal domains for rel logic
+                  const vsquareDomains = [
+                    'vsquareclinic.com', 'vsqclinic.com', 'vsquareconsult.com',
+                    'vsquare.clinic', 'vsquare-under-eye.com', 'vsquareclinic.co',
+                    'vsq-injector.com', 'en.vsquareclinic.com', 'cn.vsquareclinic.com',
+                    'doctorvsquareclinic.com', 'drvsquare.com', 'monghaclinic.com',
+                    'bestbrandclinic.com'
+                  ];
+
+                  try {
+                    const url = new URL(buttonUrl.startsWith('http') ? buttonUrl : `https://${buttonUrl}`);
+                    const domain = url.hostname.toLowerCase().replace('www.', '');
+                    const isInternal = vsquareDomains.some(d => domain.includes(d));
+                    relAttr = isInternal ? ' rel="noreferrer noopener"' : ' rel="noreferrer noopener nofollow"';
+                  } catch (e) {
+                    relAttr = ' rel="noreferrer noopener nofollow"';
+                  }
+                }
+
+                return `<!-- wp:button {"textAlign":"center"} -->
+<div class="wp-block-button"><a class="wp-block-button__link has-text-align-center wp-element-button" href="${buttonUrl}"${targetAttr}${relAttr}>${buttonText}</a></div>
 <!-- /wp:button -->`;
               }
               return '';
             }).filter(block => block !== '').join('\n');
-            
+
             if (buttonBlocks) {
-              table.outerHTML = `<!-- wp:buttons {"layout":{"type":"flex","justifyContent":"center"}} -->
+              const metadata = isBestBrand
+                ? `, "metadata":{"categories":[],"patternName":"core/block/3229","name":"คลิกดูข้อมูลคลินิก"}`
+                : '';
+
+              table.outerHTML = `<!-- wp:buttons {"layout":{"type":"flex","justifyContent":"center"}${metadata}} -->
 <div class="wp-block-buttons">
 ${buttonBlocks}
 </div>
@@ -2025,7 +2186,7 @@ ${buttonBlocks}
               return;
             }
           }
-          
+
           // --- Guard: only convert tables that actually contain images ---
           const ROWLAYOUT_MIN_IMAGES = 2; // expect at least two image sections
           const imgCountInTable = table.querySelectorAll('img').length;
@@ -2035,55 +2196,61 @@ ${buttonBlocks}
             // แปลง table ธรรมดาให้เป็น Gutenberg Table Block
             // เพิ่ม class has-fixed-layout ให้กับ table
             table.classList.add('has-fixed-layout');
-            
+
             // ครอบ table ด้วย figure และ Gutenberg comments
+            const { align } = getExplicitAlignment(table);
             const tableHTML = table.outerHTML;
-            table.outerHTML = `<!-- wp:table -->\n<figure class="wp-block-table">${tableHTML}</figure>\n<!-- /wp:table -->`;
+            const tableAttrs = { hasFixedLayout: true };
+            if (align) tableAttrs.align = align;
+            const attr = ` ${JSON.stringify(tableAttrs)}`;
+            const figureClass = align ? `wp-block-table align${align}` : 'wp-block-table';
+
+            table.outerHTML = `<!-- wp:table${attr} -->\n<figure class="${figureClass}">${tableHTML}</figure>\n<!-- /wp:table -->`;
             return;
           }
           // --- end guard ---
-          
-          if (cellsWithContent.length < 2) { 
-            table.remove(); 
-            return; 
+
+          if (cellsWithContent.length < 2) {
+            table.remove();
+            return;
           }
 
-            const makeCol = (cell) => {
+          const makeCol = (cell) => {
             const columnUniqueID = `70684_${Math.random().toString(36).slice(2, 11)}`;
             const imgEl = cell.querySelector('img');
             const innerHTML = cell.innerHTML || '';
-            
+
             // ดึงข้อความทั้งหมดจาก cell
             const fullText = (cell.textContent || '').trim();
-            
+
             // แยกข้อมูลออกเป็นส่วนๆ
             let altText = '';
             let landingUrl = '';
             let captionText = '';
-            
+
             // หา Alt: และดึงค่าออกมา
             const altRegex = /alt\s*:\s*(.+?)(?=(?:landing|link)\s*:|$)/is;
             const altMatch = fullText.match(altRegex);
             if (altMatch) {
               altText = altMatch[1].trim();
             }
-            
+
             // หา Landing: หรือ Link: และดึง URL ออกมา
             const landingRegex = /(?:landing|link)\s*:\s*(.+?)$/is;
             const landingMatch = fullText.match(landingRegex);
             if (landingMatch) {
               landingUrl = landingMatch[1].trim();
             }
-            
+
             // หาข้อความที่เป็น caption (ข้อความที่ไม่ใช่ Alt: และไม่ใช่ Landing:)
             let remainingText = fullText;
             // ลบ Alt: ... ออก
             remainingText = remainingText.replace(/alt\s*:.+?(?=(?:landing|link)\s*:|$)/is, '').trim();
             // ลบ Landing: ... หรือ Link: ... ออก
             remainingText = remainingText.replace(/(?:landing|link)\s*:.+$/is, '').trim();
-            
+
             captionText = remainingText;
-            
+
             // ตรวจจับลิงก์จาก <a> tag (สำรอง)
             const aTag = cell.querySelector('a');
             if (aTag && !landingUrl) {
@@ -2121,9 +2288,9 @@ ${buttonBlocks}
               const forceCenter = isItalic || isCentered;
               const alignAttr = forceCenter ? ' {"align":"center"}' : '';
               const classAttr = forceCenter ? ' class="has-text-align-center caption-img"' : '';
-              
+
               const paraBody = isItalic ? `<em>${captionText}</em>` : captionText;
-              
+
               paraHTML = `<!-- wp:paragraph${alignAttr} -->
 <p${classAttr}>${paraBody}</p>
 <!-- /wp:paragraph -->`;
@@ -2138,7 +2305,7 @@ ${imageHTML}${paraHTML}
 
           // Determine columns per row based on cell count
           let columnsPerRow = 2; // default to 2 columns
-          
+
           // If we have more than 2 cells, check if we should use 3 columns per row
           if (cellsWithContent.length > 2) {
             // Use 3 columns per row for tables with 3+ cells
@@ -2156,7 +2323,7 @@ ${imageHTML}${paraHTML}
             const rowUniqueID = `70684_${Math.random().toString(36).slice(2, 11)}`;
             const columnsHTML = rowCells.map(makeCol).join('\n\n');
             const numColumns = rowCells.length;
-            
+
             return `<!-- wp:kadence/rowlayout {"uniqueID":"${rowUniqueID}","columns":${numColumns},"colLayout":"equal","kbVersion":2} -->
 ${columnsHTML}
 <!-- /wp:kadence/rowlayout -->`;
@@ -2169,7 +2336,7 @@ ${columnsHTML}
         if (typeof WP_EXPORT_MODE !== 'undefined' && WP_EXPORT_MODE) {
           htmlString = htmlString.replace(/src="data:[^"]*"/g, 'src=""');
         }
-// Serialize the DOM back to a string
+        // Serialize the DOM back to a string
         htmlString = new XMLSerializer().serializeToString(doc);
 
         // Remove the <html>, <head>, and <body> tags from the string
@@ -2199,24 +2366,24 @@ ${columnsHTML}
             // ตรวจสอบว่าข้อความเป็น special content หรือไม่
             const specialKeywords = ['สารบัญ', 'อ้างอิง', 'สรุป', 'Q&A', 'FAQ', 'อ่านเพิ่มเติม', 'คำถาม', 'บทความ'];
             const hasSpecialKeyword = specialKeywords.some(keyword => text.includes(keyword));
-            
+
             if (hasSpecialKeyword) {
               return match; // ไม่รวม ให้คงเป็น paragraph แยก
             }
-            
+
             // รวม paragraph โดยใช้ <br>
             return `<!-- wp:paragraph -->\n<p>${text}<br>`;
           });
-          
+
           // Pattern 2: รวม paragraph ปกติที่ติดกันและไม่มี attributes พิเศษ
           // เฉพาะกรณีที่ไม่มี class, align หรือ attributes อื่นๆ
           // ใช้ความระมัดระวังสูง - รวมเฉพาะกรณีที่แน่ใจว่าควรรวม
-          
+
           return html;
         })(htmlString);
-        
+
         // === Force inline underline style on <u> and .underline (final safety) ===
-        (function forceUnderlineStyle(){
+        (function forceUnderlineStyle() {
           const parser3 = new DOMParser();
           const doc3 = parser3.parseFromString(htmlString, 'text/html');
           doc3.querySelectorAll('u').forEach((uEl) => {
@@ -2245,21 +2412,21 @@ ${columnsHTML}
           const tablePattern = /<table([^>]*)>([\s\S]*?)<\/table>/g;
           let match;
           const tablesToConvert = [];
-          
+
           // หา table ทั้งหมด
           while ((match = tablePattern.exec(htmlString)) !== null) {
             const fullMatch = match[0];
             const attributes = match[1];
             const content = match[2];
             const startPos = match.index;
-            
+
             // ตรวจสอบ 500 ตัวอักษรก่อนหน้า table เพื่อดูว่ามี <!-- wp:table --> หรือไม่
             const before = htmlString.substring(Math.max(0, startPos - 500), startPos);
             const hasTableBlock = /<!-- wp:table[^>]*-->\s*(?:<figure[^>]*>)?\s*$/i.test(before);
-            
+
             // ตรวจสอบว่ามี wp-block-table class หรือไม่
             const hasWpBlockClass = /class="[^"]*wp-block-table[^"]*"/.test(attributes);
-            
+
             // ถ้ายังไม่ได้อยู่ใน Gutenberg Table Block ให้บันทึกไว้เพื่อแปลง
             if (!hasTableBlock && !hasWpBlockClass) {
               tablesToConvert.push({
@@ -2269,117 +2436,84 @@ ${columnsHTML}
               });
             }
           }
-          
+
           // แปลง table ที่ยังไม่ได้ wrap
           tablesToConvert.forEach(table => {
             let newAttributes = table.attributes;
             let newContent = table.content;
-            
+
             // Helper function to clean cell content: remove p, span, div, inline styles, keep only strong and text
             const cleanCellContent = (element) => {
               const temp = element.cloneNode(true);
-              
+
               // Remove all inline styles
               temp.removeAttribute('style');
               temp.querySelectorAll('*').forEach(el => el.removeAttribute('style'));
-              
-              // Unwrap p, span, div elements but preserve their content
+
+              // Unwrap p, span, div elements but preserve their content and promote alignment
               const unwrapElements = ['p', 'span', 'div'];
               unwrapElements.forEach(tag => {
                 const elements = temp.querySelectorAll(tag);
                 elements.forEach(el => {
                   const parent = el.parentNode;
+                  if (!parent) return;
+
+                  // Promote alignment to parent cell if it's th/td
+                  const { align } = getAlignmentFromStyle(el.getAttribute('style') || '');
+                  if (align && (parent.tagName === 'TD' || parent.tagName === 'TH' || parent.tagName === 'TR')) {
+                    const target = (parent.tagName === 'TR') ? parent : parent;
+                    // Note: In convertRemainingTables, we might want to apply to cell
+                    // But sanitizeCell already calls getExplicitAlignment which checks children.
+                  }
+
+                  // Move all children up
                   while (el.firstChild) {
                     parent.insertBefore(el.firstChild, el);
                   }
+
+                  // Insert <br> if unwrapping block element (p, div) to preserve separation
+                  // Only if there is a next sibling (not the last item)
+                  if ((tag === 'p' || tag === 'div') && el.nextSibling) {
+                    const br = document.createElement('br');
+                    parent.insertBefore(br, el);
+                  }
+
                   parent.removeChild(el);
                 });
               });
-              
-              // Build cleaned content: text nodes and strong/b elements only
-              const frag = document.createDocumentFragment();
-              
-              // Process nodes recursively
-              const processNode = (node) => {
-                if (node.nodeType === Node.TEXT_NODE) {
-                  const text = node.textContent.trim();
-                  if (text) {
-                    // Check if this text is inside a strong tag
-                    let parent = node.parentNode;
-                    let isInStrong = false;
-                    while (parent && parent !== temp) {
-                      const tag = parent.tagName ? parent.tagName.toLowerCase() : '';
-                      if (tag === 'strong' || tag === 'b') {
-                        isInStrong = true;
-                        break;
-                      }
-                      parent = parent.parentNode;
-                    }
-                    
-                    if (!isInStrong) {
-                      frag.appendChild(document.createTextNode(text + ' '));
-                    }
-                  }
-                } else if (node.nodeType === Node.ELEMENT_NODE) {
-                  const tag = node.tagName ? node.tagName.toLowerCase() : '';
-                  if (tag === 'strong' || tag === 'b') {
-                    const newStrong = document.createElement('strong');
-                    newStrong.textContent = node.textContent.trim();
-                    if (newStrong.textContent) {
-                      frag.appendChild(newStrong);
-                    }
-                  } else {
-                    // For other elements, process their children
-                    Array.from(node.childNodes).forEach(child => processNode(child));
-                  }
-                }
-              };
-              
-              Array.from(temp.childNodes).forEach(node => processNode(node));
-              
-              // If no content extracted, return plain text
-              if (frag.childNodes.length === 0) {
-                const allText = temp.textContent.trim();
-                return allText ? document.createTextNode(allText) : null;
-              }
-              
-              return frag;
+
+              // Clean all remaining elements from styles/classes
+              temp.querySelectorAll('*').forEach(el => {
+                el.removeAttribute('style');
+                el.removeAttribute('class');
+              });
+
+              return temp.innerHTML.trim();
             };
-            
-            // Helper function to sanitize cell: clean content and preserve attributes
+
+            // Simplified sanitizeCell for cleaner output
             const sanitizeCell = (cell, isHeader = false) => {
               const newCell = document.createElement(isHeader ? 'th' : 'td');
-              
-              // Copy all attributes (class, data-align, etc.) but skip style
-              Array.from(cell.attributes).forEach(attr => {
-                if (attr.name !== 'style') {
-                  newCell.setAttribute(attr.name, attr.value);
+
+              // Copy essential structural attributes only
+              ['colspan', 'rowspan'].forEach(attr => {
+                if (cell.hasAttribute(attr)) {
+                  newCell.setAttribute(attr, cell.getAttribute(attr));
                 }
               });
-              
-              // Clean the content
-              const cleanedContent = cleanCellContent(cell);
-              
-              if (cleanedContent.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
-                Array.from(cleanedContent.childNodes).forEach(child => {
-                  newCell.appendChild(child.cloneNode(true));
-                });
-              } else if (cleanedContent.nodeType === Node.TEXT_NODE) {
-                if (cleanedContent.textContent.trim()) {
-                  newCell.appendChild(cleanedContent);
-                }
+
+              // Apply alignment
+              const { className: alignClass } = getExplicitAlignment(cell);
+              if (alignClass) {
+                newCell.className = alignClass;
               }
-              
-              // Set alignment
-              const existingClass = newCell.getAttribute('class') || '';
-              const classList = existingClass.split(' ').filter(c => c && !c.includes('has-text-align'));
-              classList.push(isHeader ? 'has-text-align-center' : 'has-text-align-left');
-              newCell.setAttribute('class', classList.join(' ').trim());
-              newCell.setAttribute('data-align', isHeader ? 'center' : 'left');
-              
+
+              // Clean the content using helper
+              newCell.innerHTML = cleanCellContent(cell);
+
               return newCell;
             };
-            
+
             // Helper function to remove whitespace between tags in HTML string
             const removeWhitespace = (html) => {
               return html
@@ -2388,17 +2522,17 @@ ${columnsHTML}
                 .replace(/\s+/g, ' ') // Normalize whitespace
                 .trim();
             };
-            
+
             // Parse and clean table structure
             const tempDiv = document.createElement('div');
             tempDiv.innerHTML = '<table>' + newContent + '</table>';
             const tempTable = tempDiv.querySelector('table');
-            
+
             if (tempTable) {
               // Check if thead/tbody exists
               let thead = tempTable.querySelector('thead');
               let tbody = tempTable.querySelector('tbody');
-              
+
               // If no tbody exists, create one
               if (!tbody) {
                 tbody = document.createElement('tbody');
@@ -2413,17 +2547,17 @@ ${columnsHTML}
                   tempTable.appendChild(tbody);
                 }
               }
-              
+
               // Process thead: keep only first row, move others to tbody
               if (thead) {
                 const theadRows = Array.from(thead.querySelectorAll('tr'));
-                
+
                 if (theadRows.length > 0) {
                   // Clean and sanitize first row header cells
                   const firstRow = theadRows[0];
                   const thCells = Array.from(firstRow.querySelectorAll('th, td'));
                   const cleanedHeaderCells = thCells.map(cell => sanitizeCell(cell, true));
-                  
+
                   // Clear thead and add only cleaned first row
                   thead.innerHTML = '';
                   const newFirstRow = document.createElement('tr');
@@ -2431,48 +2565,48 @@ ${columnsHTML}
                     newFirstRow.appendChild(cell);
                   });
                   thead.appendChild(newFirstRow);
-                  
+
                   // Move remaining rows from thead to tbody
                   for (let i = 1; i < theadRows.length; i++) {
                     const row = theadRows[i];
                     const cells = Array.from(row.querySelectorAll('th, td'));
                     const newRow = document.createElement('tr');
-                    
+
                     cells.forEach(cell => {
                       const newCell = sanitizeCell(cell, false); // Convert to td
                       newRow.appendChild(newCell);
                     });
-                    
+
                     tbody.appendChild(newRow);
                   }
                 }
               } else {
                 // No thead exists, check if we should create one from first row
                 const allRows = Array.from(tempTable.querySelectorAll('tr'));
-                
+
                 if (allRows.length > 0) {
                   const firstRow = allRows[0];
                   const firstRowCells = Array.from(firstRow.querySelectorAll('th, td'));
-                  
+
                   // If first row has th, create thead
                   if (firstRowCells.some(cell => cell.tagName === 'TH')) {
                     thead = document.createElement('thead');
                     const newFirstRow = document.createElement('tr');
-                    
+
                     firstRowCells.forEach(cell => {
                       const newCell = sanitizeCell(cell, true);
                       newFirstRow.appendChild(newCell);
                     });
-                    
+
                     thead.appendChild(newFirstRow);
                     tempTable.insertBefore(thead, tbody || tempTable.firstChild);
-                    
+
                     // Remove first row from current location
                     firstRow.remove();
                   }
                 }
               }
-              
+
               // Process tbody: convert all th to td and sanitize all cells
               if (tbody) {
                 const tbodyRows = Array.from(tbody.querySelectorAll('tr'));
@@ -2484,16 +2618,16 @@ ${columnsHTML}
                   });
                 });
               }
-              
+
               // Get cleaned HTML and remove whitespace
               let cleanedHTML = tempTable.innerHTML;
               cleanedHTML = removeWhitespace(cleanedHTML);
-              
+
               newContent = cleanedHTML;
             }
-            
+
             // Legacy code removed - using new cleaning logic above
-              
+
             // เพิ่ม class has-fixed-layout
             if (!newAttributes.includes('has-fixed-layout')) {
               if (newAttributes.includes('class=')) {
@@ -2507,12 +2641,19 @@ ${columnsHTML}
                 newAttributes += ' class="has-fixed-layout"';
               }
             }
-            
+
+            // Detect alignment for block attributes and figure class
+            const { align } = getExplicitAlignment(tempTable); // Use tempTable since it was reconstructed
+            const tableAttrs = { hasFixedLayout: true };
+            if (align) tableAttrs.align = align;
+            const attr = ` ${JSON.stringify(tableAttrs)}`;
+            const figureClass = align ? `wp-block-table align${align}` : 'wp-block-table';
+
             // สร้าง Gutenberg Table Block
-            const newTable = `<!-- wp:table -->
-<figure class="wp-block-table"><table${newAttributes}>${newContent}</table></figure>
+            const newTable = `<!-- wp:table${attr} -->
+<figure class="${figureClass}"><table${newAttributes}>${newContent}</table></figure>
 <!-- /wp:table -->`;
-            
+
             // แทนที่ table เดิม
             htmlString = htmlString.replace(table.match, newTable);
           });
@@ -2527,24 +2668,24 @@ ${columnsHTML}
 
         // ★ เพิ่มขั้นตอน: เพิ่ม class="headtext" ให้กับหัวข้อคำถามใน Q&A section
         htmlString = addQAHeadingClass(htmlString);
-        
+
         // ★ เพิ่มขั้นตอน: ลบข้อความ Alt ที่อยู่ใต้รูปภาพ
         htmlString = removeAltText(htmlString);
-        
+
         // ★ ปิดการใช้งานฟังก์ชัน convertReadMoreLinks เพื่อป้องกันการซ้อน blocks
         // เนื่องจาก readmore ถูกแปลงไปแล้วใน DOM processing loop แล้ว
         htmlString = convertTableToButton(htmlString);
 
         // ประมวลผลลิงก์ตามเว็บไซต์ที่เลือก
         htmlString = processLinks(htmlString, selectedWebsite);
-        
+
         // ลบ underline ที่ซ้อนกันใน link สำหรับ bestbrandclinic.com
         // เพราะ link มี underline อยู่แล้วจาก CSS ไม่ต้องมี <u> tag ซ้อน
         if (selectedWebsite === 'bestbrandclinic.com') {
           // ลบ <u> tag (รวมถึงที่มี style attribute) ที่อยู่ภายใน <a> tag (เก็บเนื้อหาไว้)
           // รองรับ: <u>, <u style="...">, <u class="..."> ฯลฯ
           htmlString = htmlString.replace(/<a\s+([^>]*)>(\s*)<u[^>]*>([\s\S]*?)<\/u>(\s*)<\/a>/gi, '<a $1>$2$3$4</a>');
-          
+
           // แปลงเบอร์โทรศัพท์ที่อยู่ใน <u> tag เป็น tel: link
           htmlString = htmlString.replace(
             /<u[^>]*>(\d{2,4}[-\s]?\d{3,4}[-\s]?\d{4})<\/u>/gi,
@@ -2553,7 +2694,7 @@ ${columnsHTML}
               return `<a href="tel:${cleanPhone}">${phoneNumber}</a>`;
             }
           );
-          
+
           // จับประโยคจัดกลางที่อยู่เหนือ Alt : และย้ายไปเป็น caption ของ image block
           // Pattern: <!-- wp:image --> ... <!-- /wp:image --> ตามด้วย paragraph จัดกลาง ตามด้วย paragraph ที่มี Alt :
           // แปลงเป็น: <!-- wp:image --> พร้อม figcaption
@@ -2573,7 +2714,7 @@ ${columnsHTML}
 ${closeComment}`;
             }
           );
-          
+
           // Pattern 2: จับ paragraph จัดกลางที่อยู่หลัง image block และก่อน Alt paragraph
           // <!-- wp:image --> ... <!-- /wp:image --> + centered paragraph + Alt paragraph
           htmlString = htmlString.replace(
@@ -2592,59 +2733,51 @@ ${closeComment}`;
             }
           );
         }
-        
+
         // เพิ่ม footer ถ้าเลือก vsquareclinic.com
         if (selectedWebsite === 'vsquareclinic.com') {
           htmlString = htmlString.trim() + '\n<!-- wp:separator -->\n<hr class="wp-block-separator has-alpha-channel-opacity"/>\n<!-- /wp:separator -->\n\n<!-- wp:block {"ref":66914} /-->';
         }
-        
+
         // เพิ่ม footer ถ้าเลือก vsqclinic.com
         if (selectedWebsite === 'vsqclinic.com') {
           htmlString = htmlString.trim() + '\n<!-- wp:block {"ref":16702} /-->';
         }
-        
+
         // เพิ่ม footer ถ้าเลือก vsquareconsult.com
         if (selectedWebsite === 'vsquareconsult.com') {
           htmlString = htmlString.trim() + '\n<!-- wp:block {"ref":34903} /-->';
         }
-        
+
         // เพิ่ม footer ถ้าเลือก vsquare-under-eye.com
         if (selectedWebsite === 'vsquare-under-eye.com') {
           htmlString = htmlString.trim() + '\n<!-- wp:block {"ref":8916} /-->';
         }
-        
+
         // เพิ่ม footer ถ้าเลือก vsquareclinic.co (ไม่มี separator)
         if (selectedWebsite === 'vsquareclinic.co') {
           htmlString = htmlString.trim() + '\n<!-- wp:block {"ref":148} /-->';
         }
-        
+
         // เพิ่ม footer ถ้าเลือก vsq-injector.com (ไม่มี separator)
         if (selectedWebsite === 'vsq-injector.com') {
           htmlString = htmlString.trim() + '\n<!-- wp:block {"ref":170} /-->';
         }
-        
+
         // เพิ่ม footer ถ้าเลือก en.vsquareclinic.com
         if (selectedWebsite === 'en.vsquareclinic.com') {
           htmlString = htmlString.trim() + '\n<!-- wp:block {"ref":66914} /-->';
         }
-        
+
         // เพิ่ม footer ถ้าเลือก cn.vsquareclinic.com
-        if (selectedWebsite === 'cn.vsquareclinic.com') {
-          htmlString = htmlString.trim() + '\n<!-- wp:block {"ref":16702} /-->';
-        }
-        
-        // ลบ separator ท้ายสุดสำหรับเว็บไซต์ที่ไม่ต้องการ separator
-        const websitesWithoutSeparator = ['vsquareclinic.co', 'vsq-injector.com', 'vsquare.clinic', 'drvsquare.com', 'doctorvsquareclinic.com', 'bestbrandclinic.com', 'monghaclinic.com', 'vsquareconsult.com'];
-        if (websitesWithoutSeparator.includes(selectedWebsite)) {
-          htmlString = htmlString.replace(/\n*<!-- wp:separator -->\n*<hr class="wp-block-separator[^"]*"\s*\/?>\n*<!-- \/wp:separator -->\s*$/gi, '');
-        }
 
         // ล้างฟอร์แมตแปลกๆ อัตโนมัติก่อนแสดงผล (Clear Unknown Formatting)
+        htmlString = cleanHTML(htmlString);
         htmlString = cleanHTML(htmlString);
 
         // ลบ <p> tags ที่ wrap Gutenberg block comments (<!-- ... -->)
         htmlString = htmlString.replace(/<p>\s*(<!--[^>]*-->)\s*<\/p>/gi, '$1');
-        
+
         // ลบ <p> tags ว่างที่อาจเกิดขึ้นจากการลบ comments
         htmlString = htmlString.replace(/<p>\s*<\/p>/gi, '');
 
@@ -2655,9 +2788,14 @@ ${closeComment}`;
         setHtmlContent(htmlString.trim());
       } catch (error) {
         console.error('Conversion error:', error);
+        if (error.message && error.message.includes('central directory')) {
+          alert('Error: This file appears to be corrupted or not a valid DOCX file (JSZip error). Please try a different file.');
+        } else {
+          alert('Error: Document conversion failed. ' + error.message);
+        }
       } finally {
         setIsLoading(false);
-// ... (rest of the code remains the same)
+        // ... (rest of the code remains the same)
       }
     };
     reader.readAsArrayBuffer(file);
@@ -2674,10 +2812,10 @@ ${closeComment}`;
           <div className="col-left">
             <div className="space-left">
               <h1>Docx to <span>Gutenberg</span> Converter</h1>
-              
+
               <div className="website-selector" style={{ marginBottom: '24px' }} ref={dropdownRef}>
-                <label style={{ 
-                  display: 'block', 
+                <label style={{
+                  display: 'block',
                   marginBottom: '12px',
                   fontSize: '18px',
                   fontWeight: '600',
@@ -2714,8 +2852,8 @@ ${closeComment}`;
                       color: selectedWebsite ? '#2c3e50' : '#999',
                       cursor: 'pointer',
                       transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                      boxShadow: isDropdownOpen 
-                        ? '0 4px 16px rgba(61, 131, 242, 0.3), 0 0 0 3px rgba(61, 131, 242, 0.1)' 
+                      boxShadow: isDropdownOpen
+                        ? '0 4px 16px rgba(61, 131, 242, 0.3), 0 0 0 3px rgba(61, 131, 242, 0.1)'
                         : '0 2px 8px rgba(0, 0, 0, 0.1)',
                       userSelect: 'none',
                       outline: 'none'
@@ -2735,7 +2873,7 @@ ${closeComment}`;
                   >
                     {selectedWebsite || '-- กรุณาเลือกเว็บไซต์ --'}
                   </div>
-                  
+
                   {/* Custom Dropdown Arrow */}
                   <div style={{
                     position: 'absolute',
@@ -2752,7 +2890,7 @@ ${closeComment}`;
 
                   {/* Custom Dropdown List */}
                   {isDropdownOpen && (
-                    <div 
+                    <div
                       id="website-listbox"
                       role="listbox"
                       aria-label="รายการเว็บไซต์"
@@ -2783,10 +2921,10 @@ ${closeComment}`;
                         flexWrap: 'wrap'
                       }}>
                         <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <kbd style={{ 
-                            padding: '2px 6px', 
-                            backgroundColor: '#fff', 
-                            border: '1px solid #cbd5e1', 
+                          <kbd style={{
+                            padding: '2px 6px',
+                            backgroundColor: '#fff',
+                            border: '1px solid #cbd5e1',
                             borderRadius: '4px',
                             fontSize: '10px',
                             fontFamily: 'monospace'
@@ -2794,10 +2932,10 @@ ${closeComment}`;
                           เลือก
                         </span>
                         <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <kbd style={{ 
-                            padding: '2px 6px', 
-                            backgroundColor: '#fff', 
-                            border: '1px solid #cbd5e1', 
+                          <kbd style={{
+                            padding: '2px 6px',
+                            backgroundColor: '#fff',
+                            border: '1px solid #cbd5e1',
                             borderRadius: '4px',
                             fontSize: '10px',
                             fontFamily: 'monospace'
@@ -2805,10 +2943,10 @@ ${closeComment}`;
                           ยืนยัน
                         </span>
                         <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <kbd style={{ 
-                            padding: '2px 6px', 
-                            backgroundColor: '#fff', 
-                            border: '1px solid #cbd5e1', 
+                          <kbd style={{
+                            padding: '2px 6px',
+                            backgroundColor: '#fff',
+                            border: '1px solid #cbd5e1',
                             borderRadius: '4px',
                             fontSize: '10px',
                             fontFamily: 'monospace'
@@ -2824,7 +2962,7 @@ ${closeComment}`;
                         {websites.map((website, index) => {
                           const isSelected = selectedWebsite === website;
                           const isHighlighted = highlightedIndex === index;
-                          
+
                           return (
                             <div
                               key={website}
@@ -2838,7 +2976,7 @@ ${closeComment}`;
                                 padding: '12px 16px',
                                 fontSize: '16px',
                                 color: isSelected ? '#3d83f2' : '#2c3e50',
-                                backgroundColor: isHighlighted 
+                                backgroundColor: isHighlighted
                                   ? (isSelected ? 'rgba(61, 131, 242, 0.2)' : 'rgba(61, 131, 242, 0.08)')
                                   : (isSelected ? 'rgba(61, 131, 242, 0.1)' : 'transparent'),
                                 cursor: 'pointer',
@@ -2847,17 +2985,17 @@ ${closeComment}`;
                                 alignItems: 'center',
                                 gap: '10px',
                                 fontWeight: isSelected ? '600' : '500',
-                                borderLeft: isSelected 
-                                  ? '4px solid #3d83f2' 
-                                  : isHighlighted 
-                                    ? '4px solid rgba(61, 131, 242, 0.5)' 
+                                borderLeft: isSelected
+                                  ? '4px solid #3d83f2'
+                                  : isHighlighted
+                                    ? '4px solid rgba(61, 131, 242, 0.5)'
                                     : '4px solid transparent',
                                 animation: `listItemSlide 0.3s ease-out ${index * 0.05}s backwards`,
                                 paddingLeft: isHighlighted ? '20px' : '16px',
                                 boxShadow: isHighlighted ? 'inset 0 0 0 2px rgba(61, 131, 242, 0.2)' : 'none'
                               }}
                             >
-                              <span style={{ 
+                              <span style={{
                                 fontSize: '18px',
                                 opacity: isSelected ? 1 : 0,
                                 transition: 'opacity 0.2s ease'
@@ -2882,7 +3020,7 @@ ${closeComment}`;
                     </div>
                   )}
                 </div>
-                
+
                 {selectedWebsite && (
                   <div style={{
                     marginTop: '8px',
@@ -2977,8 +3115,8 @@ ${closeComment}`;
                   <div className="code-header-right">
                     <span className="code-language">HTML</span>
                     <span className="code-lines">{htmlContent ? htmlContent.split('\n').length : 0} lines</span>
-                    <button 
-                      onClick={handleCopy} 
+                    <button
+                      onClick={handleCopy}
                       className={`copy-btn-header ${isCopied ? 'copied' : ''}`}
                       disabled={!htmlContent}
                       title={!htmlContent ? 'No content to copy' : 'Copy to clipboard'}
@@ -2990,14 +3128,14 @@ ${closeComment}`;
                     </button>
                   </div>
                 </div>
-                
+
                 {/* Code Content */}
                 <div className="code-wrapper">
                   {htmlContent ? (
-                    <SyntaxHighlighter 
-                      language="html" 
-                      style={vscDarkPlus} 
-                      className="syntax-highlighter" 
+                    <SyntaxHighlighter
+                      language="html"
+                      style={vscDarkPlus}
+                      className="syntax-highlighter"
                       showLineNumbers
                       wrapLines={false}
                       wrapLongLines={false}

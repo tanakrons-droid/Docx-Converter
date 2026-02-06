@@ -28,6 +28,104 @@ const sanitizeForFileSystem = (input, fallback = 'item') => {
   return sanitized.slice(0, 150);
 };
 
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+const readFileAsArrayBuffer = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => {
+    if (reader.result instanceof ArrayBuffer) {
+      resolve(reader.result);
+    } else {
+      reject(new Error('Unexpected FileReader result type'));
+    }
+  };
+  reader.onerror = (event) => {
+    reject(reader.error || event?.error || new Error('Failed to read file with FileReader'));
+  };
+  try {
+    reader.readAsArrayBuffer(file);
+  } catch (error) {
+    reject(error instanceof Error ? error : new Error('Failed to read file with FileReader'));
+  }
+});
+
+const streamToArrayBuffer = async (stream) => {
+  const reader = stream.getReader();
+  const chunks = [];
+  let totalLength = 0;
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (value) {
+        chunks.push(value);
+        totalLength += value.length;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const combined = new Uint8Array(totalLength);
+  let offset = 0;
+  chunks.forEach(chunk => {
+    combined.set(chunk, offset);
+    offset += chunk.length;
+  });
+
+  return combined.buffer;
+};
+
+const readFileToArrayBufferWithRetries = async (file, maxAttempts = 4) => {
+  let lastError;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      if (typeof file.arrayBuffer === 'function') {
+        return await file.arrayBuffer();
+      }
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error('Failed to read file');
+      if (error?.name !== 'NotFoundError' && error?.name !== 'NotReadableError') {
+        break;
+      }
+    }
+
+    if (typeof file.stream === 'function') {
+      try {
+        const buffer = await streamToArrayBuffer(file.stream());
+        return buffer;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error('Failed to read file via stream');
+        if (error?.name !== 'NotFoundError' && error?.name !== 'NotReadableError') {
+          break;
+        }
+      }
+    }
+
+    try {
+      return await readFileAsArrayBuffer(file);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error('Failed to read file via FileReader');
+      if (error?.name !== 'NotFoundError' && error?.name !== 'NotReadableError') {
+        break;
+      }
+    }
+
+    if (attempt < maxAttempts - 1) {
+      await delay(250 * (attempt + 1));
+    }
+  }
+
+  throw lastError || new Error('Unable to read file');
+};
+
+const getFileCacheKey = (file) => {
+  if (!file) return '';
+  return file.webkitRelativePath || file.relativePath || file.name || '';
+};
+
 const loadWASM = async () => {
   if (wasmModule || wasmLoading) return wasmModule;
   
@@ -48,12 +146,133 @@ const loadWASM = async () => {
   }
 };
 
+const revokeObjectUrlSafe = (url) => {
+  if (!url) return;
+  try {
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    console.warn('Failed to revoke object URL', error);
+  }
+};
+
+const cleanupBatchPreviewUrls = (results) => {
+  if (!Array.isArray(results)) return;
+  results.forEach(item => {
+    if (item?.previewUrl) {
+      revokeObjectUrlSafe(item.previewUrl);
+    }
+  });
+};
+
+const createInitialBatchResults = (files) => files.map(file => ({
+  name: file.name,
+  originalSize: file.size,
+  resizedSize: null,
+  status: 'pending',
+  format: null,
+  previewUrl: null
+}));
+
+const loadImageFromFile = (file) => {
+  return new Promise((resolve, reject) => {
+    let triedFileReader = false;
+    let triedArrayBuffer = false;
+
+    const finishWithImage = (src, revokeUrl = false) => {
+      const img = new Image();
+      img.onload = () => {
+        if (revokeUrl) {
+          revokeObjectUrlSafe(src);
+        }
+        resolve(img);
+      };
+      img.onerror = (event) => {
+        if (revokeUrl) {
+          revokeObjectUrlSafe(src);
+        }
+        reject(event?.error || new Error('Failed to decode image'));
+      };
+      img.src = src;
+    };
+
+    const fallbackToArrayBuffer = async () => {
+      if (triedArrayBuffer) {
+        reject(new Error('Failed to read image file'));
+        return;
+      }
+      triedArrayBuffer = true;
+      try {
+        const buffer = await file.arrayBuffer();
+        const blob = new Blob([buffer], { type: file.type || 'application/octet-stream' });
+        const objectUrl = URL.createObjectURL(blob);
+        finishWithImage(objectUrl, true);
+      } catch (error) {
+        console.error(`ArrayBuffer fallback failed for ${file.name}`, error);
+        reject(error instanceof Error ? error : new Error('Failed to read image file'));
+      }
+    };
+
+    const fallbackToFileReader = () => {
+      if (triedFileReader) {
+        fallbackToArrayBuffer();
+        return;
+      }
+      triedFileReader = true;
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result !== 'string') {
+          fallbackToArrayBuffer();
+          return;
+        }
+
+        finishWithImage(reader.result, false);
+      };
+      reader.onerror = (event) => {
+        console.warn(`FileReader readAsDataURL failed for ${file.name}`, reader.error || event?.error || event);
+        fallbackToArrayBuffer();
+      };
+      try {
+        reader.readAsDataURL(file);
+      } catch (error) {
+        console.warn(`FileReader threw while reading ${file.name}`, error);
+        fallbackToArrayBuffer();
+      }
+    };
+
+    const loadFromObjectUrl = () => {
+      let objectUrl;
+      try {
+        objectUrl = URL.createObjectURL(file);
+      } catch (error) {
+        console.warn(`Object URL creation failed for ${file.name}, falling back to FileReader.`, error);
+        fallbackToFileReader();
+        return;
+      }
+
+      const img = new Image();
+      img.onload = () => {
+        revokeObjectUrlSafe(objectUrl);
+        resolve(img);
+      };
+      img.onerror = (event) => {
+        revokeObjectUrlSafe(objectUrl);
+        console.warn(`Object URL decode failed for ${file.name}, falling back to FileReader.`, event?.error || event);
+        fallbackToFileReader();
+      };
+      img.src = objectUrl;
+    };
+
+    loadFromObjectUrl();
+  });
+};
+
 export default function ImageResizeCanvas() {
   const [useWasm, setUseWasm] = useState(false);
   const [mode, setMode] = useState('single'); // 'single' or 'batch'
   const [image, setImage] = useState(null);
   const [originalFormat, setOriginalFormat] = useState('image/jpeg'); // Track original file format
   const [batchFiles, setBatchFiles] = useState([]);
+  const [batchFileCache, setBatchFileCache] = useState(new Map());
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, processing: false });
   const [batchResults, setBatchResults] = useState([]);
   const [width, setWidth] = useState(1920);
@@ -67,6 +286,7 @@ export default function ImageResizeCanvas() {
   const [resizedBlob, setResizedBlob] = useState(null);
   const canvasRef = useRef(null);
   const outputCanvasRef = useRef(null);
+  const batchResultsRef = useRef([]);
 
   // Try to load WASM on mount
   useEffect(() => {
@@ -75,7 +295,17 @@ export default function ImageResizeCanvas() {
     });
   }, []);
 
-  const handleFileSelect = (e) => {
+  useEffect(() => {
+    batchResultsRef.current = batchResults;
+  }, [batchResults]);
+
+  useEffect(() => {
+    return () => {
+      cleanupBatchPreviewUrls(batchResultsRef.current);
+    };
+  }, []);
+
+  const handleFileSelect = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
@@ -93,49 +323,48 @@ export default function ImageResizeCanvas() {
     }
     setOriginalFormat(detectedFormat);
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        // Draw to canvas (check if canvas exists)
-        const canvas = canvasRef.current;
-        if (!canvas) {
-          console.error('Canvas ref not found');
-          return;
-        }
-        
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0);
-        
-        setImage({
-          width: img.width,
-          height: img.height,
-          element: img
-        });
+    try {
+      const img = await loadImageFromFile(file);
 
-        // Auto-set dimensions: max width 1920, height auto (maintain aspect ratio)
-        const maxWidth = 1920;
-        const ratio = img.width / img.height;
-        
-        if (img.width > maxWidth) {
-          setWidth(maxWidth);
-          setHeight(Math.round(maxWidth / ratio));
-        } else {
-          // If image is smaller than 1920, keep original dimensions
-          setWidth(img.width);
-          setHeight(img.height);
-        }
+      // Draw to canvas (check if canvas exists)
+      const canvas = canvasRef.current;
+      if (!canvas) {
+        console.error('Canvas ref not found');
+        return;
+      }
 
-        // Reset resized data
-        setResizedDataUrl(null);
-        setResizedSize(0);
-        setResizedBlob(null);
-      };
-      img.src = event.target.result;
-    };
-    reader.readAsDataURL(file);
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+
+      setImage({
+        width: img.width,
+        height: img.height,
+        element: img
+      });
+
+      // Auto-set dimensions: max width 1920, height auto (maintain aspect ratio)
+      const maxWidth = 1920;
+      const ratio = img.width / img.height;
+
+      if (img.width > maxWidth) {
+        setWidth(maxWidth);
+        setHeight(Math.round(maxWidth / ratio));
+      } else {
+        // If image is smaller than 1920, keep original dimensions
+        setWidth(img.width);
+        setHeight(img.height);
+      }
+
+      // Reset resized data
+      setResizedDataUrl(null);
+      setResizedSize(0);
+      setResizedBlob(null);
+    } catch (error) {
+      console.error('Failed to load selected image', error);
+      alert('ไม่สามารถอ่านไฟล์รูปภาพได้ กรุณาลองไฟล์อื่นหรือตรวจสอบสิทธิ์การเข้าถึง');
+    }
   };
 
   const [resizedDataUrl, setResizedDataUrl] = useState(null);
@@ -283,7 +512,7 @@ export default function ImageResizeCanvas() {
   };
 
   // Batch processing functions
-  const handleFolderSelect = (e) => {
+  const handleFolderSelect = async (e) => {
     const files = Array.from(e.target.files).filter(file => 
       file.type.startsWith('image/')
     );
@@ -293,17 +522,29 @@ export default function ImageResizeCanvas() {
       return;
     }
 
+    // Cache file data immediately to prevent handle expiration
+    const cache = new Map();
+    for (const file of files) {
+      try {
+        const buffer = await readFileToArrayBufferWithRetries(file);
+        cache.set(getFileCacheKey(file), {
+          buffer,
+          type: file.type,
+          name: file.name,
+          size: file.size
+        });
+      } catch (error) {
+        console.error(`Failed to cache ${file.name}:`, error?.message || error);
+      }
+    }
+
+    setBatchFileCache(cache);
     setBatchFiles(files);
     setBatchProgress({ current: 0, total: files.length, processing: false });
-    
-    // Initialize batch results with file info
-    const initialResults = files.map(file => ({
-      name: file.name,
-      originalSize: file.size,
-      resizedSize: null,
-      status: 'pending' // pending, processing, success, error
-    }));
-    setBatchResults(initialResults);
+    setBatchResults(prev => {
+      cleanupBatchPreviewUrls(prev);
+      return createInitialBatchResults(files);
+    });
   };
 
   // Drag & Drop handlers
@@ -335,91 +576,128 @@ export default function ImageResizeCanvas() {
         return;
       }
 
+      // Cache file data immediately to prevent handle expiration
+      const cache = new Map();
+      for (const file of files) {
+        try {
+          const buffer = await readFileToArrayBufferWithRetries(file);
+          cache.set(getFileCacheKey(file), {
+            buffer,
+            type: file.type,
+            name: file.name,
+            size: file.size
+          });
+        } catch (error) {
+          console.error(`Failed to cache ${file.name}:`, error?.message || error);
+        }
+      }
+
+      setBatchFileCache(cache);
       setBatchFiles(files);
       setBatchProgress({ current: 0, total: files.length, processing: false });
-      
-      const initialResults = files.map(file => ({
-        name: file.name,
-        originalSize: file.size,
-        resizedSize: null,
-        status: 'pending'
-      }));
-      setBatchResults(initialResults);
+      setBatchResults(prev => {
+        cleanupBatchPreviewUrls(prev);
+        return createInitialBatchResults(files);
+      });
     };
     
     processItems();
   };
 
   const resizeSingleImage = async (file, targetWidth, targetHeight) => {
-    return new Promise((resolve, reject) => {
-      // Detect file format
-      let fileFormat = 'image/jpeg'; // default
-      if (file.type === 'image/png') {
-        fileFormat = 'image/png';
-      } else if (file.type === 'image/webp') {
-        fileFormat = 'image/webp';
-      } else if (file.type === 'image/jpeg' || file.type === 'image/jpg') {
-        fileFormat = 'image/jpeg';
-      }
+    // Use cached data if available to avoid NotFoundError
+    const cacheKey = getFileCacheKey(file);
+    let cached = batchFileCache.get(cacheKey);
+    let fileToLoad = file;
+    
+    if (cached) {
+      // Reconstruct File from cached ArrayBuffer
+      const blob = new Blob([cached.buffer], { type: cached.type });
+      fileToLoad = new File([blob], cached.name, { type: cached.type });
+    } else {
+      try {
+        const buffer = await readFileToArrayBufferWithRetries(file);
+        const inferredType = file.type || 'application/octet-stream';
+        const blob = new Blob([buffer], { type: inferredType });
+        const reconstructedFile = new File([blob], file.name, { type: inferredType });
+        fileToLoad = reconstructedFile;
 
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const img = new Image();
-        img.onload = async () => {
-          try {
-            // Calculate dimensions: max width 1920, height auto
-            const maxWidth = 1920;
-            const ratio = img.width / img.height;
-            let newWidth = targetWidth;
-            let newHeight = targetHeight;
-            
-            if (img.width > maxWidth) {
-              newWidth = maxWidth;
-              newHeight = Math.round(maxWidth / ratio);
-            } else {
-              // If image is smaller than 1920, keep original dimensions
-              newWidth = img.width;
-              newHeight = img.height;
-            }
-
-            // สร้าง canvas ใหม่สำหรับแต่ละรูป (แก้ปัญหารูปซ้ำกันใน batch mode)
-            const canvas = document.createElement('canvas');
-            canvas.width = img.width;
-            canvas.height = img.height;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0);
-
-            // สร้าง output canvas ใหม่สำหรับแต่ละรูป
-            const outputCanvas = document.createElement('canvas');
-            outputCanvas.width = newWidth;
-            outputCanvas.height = newHeight;
-            const ctx2 = outputCanvas.getContext('2d');
-            
-            ctx2.imageSmoothingEnabled = algorithm !== 'pixelated';
-            ctx2.imageSmoothingQuality = algorithm;
-            ctx2.drawImage(img, 0, 0, newWidth, newHeight);
-
-            // Determine actual format
-            const actualFormat = outputFormat === 'same' ? fileFormat : outputFormat;
-
-            // Convert to blob
-            outputCanvas.toBlob((blob) => {
-              if (blob) {
-                resolve({ blob, filename: file.name, width: newWidth, height: newHeight, format: actualFormat });
-              } else {
-                reject(new Error('Failed to create blob'));
-              }
-            }, actualFormat, quality);
-          } catch (error) {
-            reject(error);
-          }
+        const cacheEntry = {
+          buffer,
+          type: inferredType,
+          name: file.name,
+          size: file.size
         };
-        img.onerror = () => reject(new Error('Failed to load image'));
-        img.src = event.target.result;
-      };
-      reader.onerror = () => reject(new Error('Failed to read file'));
-      reader.readAsDataURL(file);
+        setBatchFileCache(prev => {
+          const next = new Map(prev);
+          next.set(cacheKey, cacheEntry);
+          return next;
+        });
+        cached = cacheEntry;
+      } catch (error) {
+        console.error(`Failed to read ${file.name} on-demand:`, error?.message || error);
+      }
+    }
+
+    // Detect file format
+    let fileFormat = 'image/jpeg'; // default
+    const fileType = fileToLoad.type || cached?.type || '';
+    if (fileType === 'image/png') {
+      fileFormat = 'image/png';
+    } else if (fileType === 'image/webp') {
+      fileFormat = 'image/webp';
+    } else if (fileType === 'image/jpeg' || fileType === 'image/jpg') {
+      fileFormat = 'image/jpeg';
+    }
+
+    const img = await loadImageFromFile(fileToLoad);
+
+    // Calculate dimensions: max width 1920, height auto
+    const maxWidth = 1920;
+    const ratio = img.width / img.height;
+    let newWidth = targetWidth;
+    let newHeight = targetHeight;
+
+    if (img.width > maxWidth) {
+      newWidth = maxWidth;
+      newHeight = Math.round(maxWidth / ratio);
+    } else {
+      // If image is smaller than 1920, keep original dimensions
+      newWidth = img.width;
+      newHeight = img.height;
+    }
+
+    // สร้าง canvas ใหม่สำหรับแต่ละรูป (แก้ปัญหารูปซ้ำกันใน batch mode)
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+
+    // สร้าง output canvas ใหม่สำหรับแต่ละรูป
+    const outputCanvas = document.createElement('canvas');
+    outputCanvas.width = newWidth;
+    outputCanvas.height = newHeight;
+    const ctx2 = outputCanvas.getContext('2d');
+    
+    ctx2.imageSmoothingEnabled = algorithm !== 'pixelated';
+    ctx2.imageSmoothingQuality = algorithm;
+    ctx2.drawImage(img, 0, 0, newWidth, newHeight);
+
+    // Determine actual format
+    const actualFormat = outputFormat === 'same' ? fileFormat : outputFormat;
+
+    const blob = await new Promise((resolve, reject) => {
+      outputCanvas.toBlob((result) => {
+        if (result) {
+          resolve(result);
+        } else {
+          reject(new Error('Failed to create blob'));
+        }
+      }, actualFormat, quality);
     });
+
+    return { blob, filename: file.name, width: newWidth, height: newHeight, format: actualFormat };
   };
 
   const handleBatchResize = async () => {
@@ -442,18 +720,22 @@ export default function ImageResizeCanvas() {
 
         try {
           // eslint-disable-next-line no-unused-vars
-          const { blob, filename, format } = await resizeSingleImage(file, width, height);
+          const { blob, format } = await resizeSingleImage(file, width, height);
 
           // Update result with success and keep blob in memory
-          setBatchResults(prev => prev.map((item, idx) =>
-            idx === i ? {
+          setBatchResults(prev => prev.map((item, idx) => {
+            if (idx !== i) return item;
+            if (item.previewUrl) {
+              revokeObjectUrlSafe(item.previewUrl);
+            }
+            return {
               ...item,
               resizedSize: blob.size,
               status: 'success',
-              blob,
-              format
-            } : item
-          ));
+              format,
+              previewUrl: URL.createObjectURL(blob)
+            };
+          }));
 
           setBatchProgress({
             current: i + 1,
@@ -464,9 +746,19 @@ export default function ImageResizeCanvas() {
           console.error(`Error processing ${file.name}:`, error);
 
           // Update result with error
-          setBatchResults(prev => prev.map((item, idx) =>
-            idx === i ? { ...item, status: 'error' } : item
-          ));
+          setBatchResults(prev => prev.map((item, idx) => {
+            if (idx !== i) return item;
+            if (item.previewUrl) {
+              revokeObjectUrlSafe(item.previewUrl);
+            }
+            return {
+              ...item,
+              status: 'error',
+              resizedSize: null,
+              format: null,
+              previewUrl: null
+            };
+          }));
         }
       }
 
@@ -485,7 +777,7 @@ export default function ImageResizeCanvas() {
 
   const handleBatchSave = async () => {
     // ต้องมีผลลัพธ์ที่พร้อมบันทึกอย่างน้อย 1 ไฟล์
-    const ready = batchResults.filter(r => r.status === 'success' && r.blob);
+    const ready = batchResults.filter(r => r.status === 'success' && r.previewUrl);
     if (ready.length === 0) {
       alert('ยังไม่มีไฟล์ที่ Resize เสร็จ กรุณากดปุ่ม Resize ก่อน');
       return;
@@ -518,6 +810,8 @@ export default function ImageResizeCanvas() {
       const usedFilenames = new Set();
       for (let i = 0; i < ready.length; i++) {
         const item = ready[i];
+        const response = await fetch(item.previewUrl);
+        const blob = await response.blob();
         const ext = {
           'image/jpeg': 'jpg',
           'image/png': 'png',
@@ -537,7 +831,7 @@ export default function ImageResizeCanvas() {
 
         const fileHandle = await resizeDir.getFileHandle(newFilename, { create: true });
         const writable = await fileHandle.createWritable();
-        await writable.write(item.blob);
+        await writable.write(blob);
         await writable.close();
       }
 
@@ -859,7 +1153,10 @@ export default function ImageResizeCanvas() {
                     <button
                       onClick={() => {
                         setBatchFiles([]);
-                        setBatchResults([]);
+                        setBatchResults(prev => {
+                          cleanupBatchPreviewUrls(prev);
+                          return [];
+                        });
                         setBatchProgress({ current: 0, total: 0, processing: false });
                       }}
                       style={{
@@ -1220,6 +1517,7 @@ export default function ImageResizeCanvas() {
                     }}>
                       <tr>
                         <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 600, fontSize: 11 }}>สถานะ</th>
+                        <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 600, fontSize: 11 }}>พรีวิว</th>
                         <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 600, fontSize: 11 }}>ชื่อไฟล์</th>
                         <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11 }}>เดิม</th>
                         <th style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11 }}>ใหม่</th>
@@ -1245,6 +1543,22 @@ export default function ImageResizeCanvas() {
                               {result.status === 'processing' && <span style={{ color: '#fbbf24' }}>⚙️</span>}
                               {result.status === 'success' && <span style={{ color: '#4ade80' }}>✅</span>}
                               {result.status === 'error' && <span style={{ color: '#f87171' }}>❌</span>}
+                            </td>
+                            <td style={{ padding: '5px 8px', textAlign: 'center' }}>
+                              {result.previewUrl ? (
+                                <img
+                                  src={result.previewUrl}
+                                  alt={result.name}
+                                  style={{
+                                    maxWidth: 60,
+                                    maxHeight: 40,
+                                    borderRadius: 4,
+                                    border: '1px solid #475569'
+                                  }}
+                                />
+                              ) : (
+                                <span style={{ color: '#64748b', fontSize: 11 }}>-</span>
+                              )}
                             </td>
                             <td style={{ 
                               padding: '5px 8px', 
