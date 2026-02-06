@@ -155,13 +155,7 @@ function isExplicitCentered(el) {
   return align === 'center';
 }
 
-// 2) ตรวจจับ "center" แบบอนุโลม (ดู parent 1 ชั้น)
-// ใช้เฉพาะกับ caption ใต้รูป
-function isCaptionLikelyCentered(p) {
-  if (isExplicitCentered(p)) return true;
-  const parent = p && p.parentElement;
-  return !!(parent && isExplicitCentered(parent));
-}
+// Note: isCaptionLikelyCentered function removed as it was unused
 
 // === End helper functions for alignment ===
 
@@ -1504,7 +1498,7 @@ function Home() {
 
           // Check if paragraph starts with H:1, H:2, H:3, H:4, H:5, or H:6
           // More flexible heading indicator detection
-          const headingMatch = text.match(/^(?:h\s*[1-6]|h[1-6]|header\s*[1-6]|header\s*tag\s*[1-6])\s*[:\-]?\s*(.+)$/i);
+          const headingMatch = text.match(/^(?:h\s*[1-6]|h[1-6]|header\s*[1-6]|header\s*tag\s*[1-6])\s*[:  -]?\s*(.+)$/i);
           if (headingMatch) {
             const levelMatch = text.match(/([1-6])/);
             const level = levelMatch ? levelMatch[1] : '2'; // Fallback to H2
@@ -1534,7 +1528,7 @@ function Home() {
           const level = heading.tagName.toLowerCase();
           const levelNumber = level.match(/\d+/)[0];
           const headingContent = heading.innerHTML.trim();
-          let headingText = headingContent.replace(/1st/gi, '').replace(/(?:h\s*[1-6]|h[1-6]|header\s*[1-6]|header\s*tag\s*[1-6])\s*[:\-]?\s*/gi, '').trim();
+          let headingText = headingContent.replace(/1st/gi, '').replace(/(?:h\s*[1-6]|h[1-6]|header\s*[1-6]|header\s*tag\s*[1-6])\s*[:-]?\s*/gi, '').trim();
           if (headingText.startsWith(':')) {
             headingText = headingText.replace(':', '').trim();
           }
@@ -2461,7 +2455,6 @@ ${columnsHTML}
                   // Promote alignment to parent cell if it's th/td
                   const { align } = getAlignmentFromStyle(el.getAttribute('style') || '');
                   if (align && (parent.tagName === 'TD' || parent.tagName === 'TH' || parent.tagName === 'TR')) {
-                    const target = (parent.tagName === 'TR') ? parent : parent;
                     // Note: In convertRemainingTables, we might want to apply to cell
                     // But sanitizeCell already calls getExplicitAlignment which checks children.
                   }

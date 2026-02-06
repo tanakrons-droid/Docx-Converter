@@ -1052,7 +1052,7 @@ export function cleanHTML(html, forbiddenTags = [], cssMap = {}) {
 
     // Alignment preservation
     const textAlignFromClass = hasTextAlignFromClass($el);
-    if (textAlignFromClass && !/text-align\s*:/i.test(style) && !/margin\s*[:\-]/i.test(style)) {
+    if (textAlignFromClass && !/text-align\s*:/i.test(style) && !/margin\s*[:-]/i.test(style)) {
       if (textAlignFromClass === 'center' && (tagName === 'table' || tagName === 'div')) {
         style += (style.endsWith(';') ? ' ' : (style ? '; ' : '')) + 'margin-left: auto; margin-right: auto; text-align: center;';
       } else {
@@ -1848,11 +1848,11 @@ function getSpecialParagraphClass(text, html) {
  */
 function generateHashId(text) {
   return text
-    .replace(/\<\/?[^\>]+(\>|$)/g, '')  // Remove HTML tags first
+    .replace(/<\/?[^>]+(\u003e|$)/g, '')  // Remove HTML tags first
     .replace(/\[.*?\]/g, '')       // Remove shortcodes like [current_year]
     .replace(/&nbsp;/gi, ' ')      // Convert &nbsp; to regular space (IMPORTANT: do this before &amp; normalization)
     .replace(/\u00A0/g, ' ')       // Convert Unicode non-breaking space to regular space
-    .replace(/\&amp;/g, '&')      // Normalize &amp; to & first (IMPORTANT: do this before toLowerCase)
+    .replace(/&amp;/g, '&')      // Normalize &amp; to & first (IMPORTANT: do this before toLowerCase)
     .toLowerCase()
     // Remove common punctuation and special characters
     .replace(/['"""`]/g, '')  // Remove quotes and apostrophes
@@ -3552,7 +3552,6 @@ function convertToGutenberg(html, website) {
             // " (U+0022), " (U+201C), " (U+201D)
             if (specialClass.hasQuoteMarks) {
               // Remove first and last character (quote marks)
-              quoteTextPlain = quoteTextPlain.slice(1, -1).trim();
               // Also remove from content (HTML) - use regex to handle all quote types
               quoteText = quoteText.replace(/^[""\u201C\u201D]/, '').replace(/[""\u201C\u201D]$/, '').trim();
             }
@@ -3806,8 +3805,6 @@ function convertToGutenberg(html, website) {
           replaceYearsInElement($el);
         }
 
-        const currentListIndex = listIndex;
-        listIndex++; // Increment for next list
         const listStart = $el.attr('start') ? parseInt($el.attr('start'), 10) : 1;
 
         // Count total list items (including nested) - like Home.jsx convertListToGutenberg
@@ -3822,7 +3819,7 @@ function convertToGutenberg(html, website) {
           });
           return count;
         };
-        const totalItems = countItems($el);
+        // Note: totalItems count is calculated but not used in current implementation
 
         // Check if this is a dashed list (items starting with "- ")
         let isDashed = false;
@@ -3948,7 +3945,7 @@ function convertToGutenberg(html, website) {
           $nestedUl.children('li').each((_, nestedLi) => {
             const $nestedLi = $(nestedLi);
             const $deeperNestedUl = $nestedLi.children('ul, ol').first();
-            const $nestedA = $nestedLi.find('> a, > span a, > p a').first(); // Direct child links only
+            // Note: Direct child links check removed as $nestedA was unused
 
             // Check for deeper nested list (recursive)
             if ($deeperNestedUl.length > 0) {
@@ -4001,7 +3998,7 @@ function convertToGutenberg(html, website) {
         $el.children('li').each((_, li) => {
           const $li = $(li);
           const $nestedUl = $li.children('ul, ol').first();
-          const $aTag = $li.find('a').first();
+          // Note: $aTag check removed as it was unused
 
           if ($nestedUl.length > 0) {
             // Process nested list first
@@ -4380,8 +4377,8 @@ function convertToGutenberg(html, website) {
               $cell.find('p, span').each((_, p) => {
                 const pText = $(p).text().trim();
                 // Match Alt: or Alt text: patterns
-                if (/^(Alt|alt|ALT)\s*[:\-]?\s*/i.test(pText)) {
-                  altText = pText.replace(/^(Alt|alt|ALT)\s*[:\-]?\s*/i, '').trim();
+                if (/^(Alt|alt|ALT)\s*[:-]?\s*/i.test(pText)) {
+                  altText = pText.replace(/^(Alt|alt|ALT)\s*[:-]?\s*/i, '').trim();
                 }
               });
 
@@ -4825,6 +4822,7 @@ ${innerBlocks}<!-- /wp:kadence/rowlayout -->`);
         // Convert first row to thead with th elements unless it has rowspans
 
         // Helper function to check if cell is centered
+        // Note: isCellCentered function defined but result not used in current implementation
         const isCellCentered = ($cell) => {
           const { align } = getExplicitAlignment($cell);
           if (align === 'center') return true;
@@ -5040,7 +5038,7 @@ ${innerBlocks}<!-- /wp:kadence/rowlayout -->`);
         $el.removeAttr('style');
 
         // Detect table alignment - including checking parent div wrapper
-        const { align, className: alignClass } = getExplicitAlignment($el, true);
+        const { align } = getExplicitAlignment($el, true);
         const tableAttrs = { hasFixedLayout: true };
         if (align) tableAttrs.align = align;
 
