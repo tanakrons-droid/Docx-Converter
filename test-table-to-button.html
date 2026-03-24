@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="th">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ทดสอบ convertTableToButton</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 40px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .container {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        }
+
+        h1 {
+            color: #333;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        h2 {
+            color: #667eea;
+            margin-top: 30px;
+        }
+
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .input-box,
+        .output-box {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 10px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            overflow-x: auto;
+        }
+
+        .input-box {
+            border-left: 4px solid #e74c3c;
+        }
+
+        .output-box {
+            border-left: 4px solid #27ae60;
+        }
+
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s;
+            margin: 10px 5px;
+        }
+
+        button:hover {
+            background: #764ba2;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .label {
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 5px;
+            display: block;
+        }
+
+        .highlight {
+            background: #fff3cd;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-weight: 600;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 32px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+
+        .stat-label {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🧪 ทดสอบฟังก์ชัน convertTableToButton</h1>
+        <p>ทดสอบว่าฟังก์ชันนี้จำเป็นหรือไม่ โดยดูผลลัพธ์ก่อนและหลังการแปลง</p>
+
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-label">Test Cases</div>
+                <div class="stat-number" id="totalTests">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Converted</div>
+                <div class="stat-number" id="convertedCount">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Not Converted</div>
+                <div class="stat-number" id="notConvertedCount">0</div>
+            </div>
+        </div>
+
+        <button onclick="runAllTests()">🚀 รันทดสอบทั้งหมด</button>
+        <button onclick="clearResults()">🗑️ ล้างผลลัพธ์</button>
+
+        <div id="results"></div>
+    </div>
+
+    <script type="module">
+        // Import the convertTableToButton function
+        import { convertTableToButton } from './src/utils/convertTableToButton.js';
+        window.convertTableToButton = convertTableToButton;
+
+        // Test cases
+        const testCases = [
+            {
+                name: "Table 1x1 ที่มีลิงก์เดียว (ควรแปลง)",
+                input: `<figure class="wp-block-table"><table><tr><td><a href="https://vsquareclinic.com/botox">คลิกดูข้อมูล Botox</a></td></tr></table></figure>`,
+                shouldConvert: true
+            },
+            {
+                name: "Table 1x1 ที่มีหลายลิงก์ (ควรแปลง)",
+                input: `<figure class="wp-block-table"><table><tr><td><a href="https://vsquareclinic.com/botox">Botox</a><br><a href="https://vsquareclinic.com/filler">Filler</a></td></tr></table></figure>`,
+                shouldConvert: true
+            },
+            {
+                name: "Table 1x1 ที่มีข้อความและลิงก์ (ไม่ควรแปลง)",
+                input: `<figure class="wp-block-table"><table><tr><td>ข้อมูลเพิ่มเติม: <a href="https://vsquareclinic.com">คลิกที่นี่</a></td></tr></table></figure>`,
+                shouldConvert: false
+            },
+            {
+                name: "Table 2x2 (ไม่ควรแปลง)",
+                input: `<figure class="wp-block-table"><table><tr><td>A</td><td>B</td></tr><tr><td>C</td><td>D</td></tr></table></figure>`,
+                shouldConvert: false
+            },
+            {
+                name: "Table 1x1 ที่ไม่มีลิงก์ (ไม่ควรแปลง)",
+                input: `<figure class="wp-block-table"><table><tr><td>ข้อความธรรมดา</td></tr></table></figure>`,
+                shouldConvert: false
+            },
+            {
+                name: "Table 1x1 ที่มี Google Redirect URL (ควรแปลงและทำความสะอาด URL)",
+                input: `<figure class="wp-block-table"><table><tr><td><a href="https://www.google.com/url?q=https://vsquareclinic.com&sa=D">คลิกที่นี่</a></td></tr></table></figure>`,
+                shouldConvert: true
+            },
+            {
+                name: "Table 1x1 ที่มี pattern 'คลิกดูข้อมูลคลินิก' (ควรแปลงพร้อม metadata)",
+                input: `<figure class="wp-block-table"><table><tr><td><a href="https://bestbrandclinic.com">คลิกดูข้อมูลคลินิก</a></td></tr></table></figure>`,
+                shouldConvert: true
+            },
+            {
+                name: "Table 1x1 ที่มี &nbsp; (non-breaking space) และลิงก์ (ควรแปลง)",
+                input: `<figure class="wp-block-table"><table><tr><td>&nbsp;<a href="https://vsquareclinic.com">คลิก</a>&nbsp;</td></tr></table></figure>`,
+                shouldConvert: true
+            },
+            {
+                name: "User Reported Table (should NOT convert)",
+                input: `<figure class="wp-block-table"><table class="c54"><tbody><tr class="c23"><td class="c51" colspan="1" rowspan="1"><p class="c11"><span class="c37 c8 c33">ยี่ห้อโบท็อก</span></p></td><td class="c28" colspan="1" rowspan="1"><p class="c11"><span class="c37 c8 c33">ราคาเริ่มต้น 100U</span></p><p class="c11"><span class="c37 c8 c33">โดยประมาณ</span></p></td><td class="c48" colspan="1" rowspan="1"><p class="c11"><span class="c37 c8 c33">จุดเด่น </span></p></td></tr><tr class="c23"><td class="c51" colspan="1" rowspan="1"><p class="c11"><span class="c4"><a class="c22" href="https://www.google.com/url?q=https://www.vsquareclinic.com/tips/botox-allergan/&amp;sa=D&amp;source=editors&amp;ust=1770956454034978&amp;usg=AOvVaw2h_6Nk7oKs58dLCbgWeYIa">Allergan (อเมริกา)</a></span></p></td><td class="c28" colspan="1" rowspan="1"><p class="c11"><span class="c3">18,000.-</span></p></td><td class="c48" colspan="1" rowspan="1"><p class="c25"><span class="c3">แบรนด์แรกของโลก มีงานวิจัยรองรับมากที่สุด ตัวยาบริสุทธื์สูง กระจายตัวแคบและแม่นยำที่สุด</span></p></td></tr><tr class="c23"><td class="c51" colspan="1" rowspan="1"><p class="c11"><span class="c4"><a class="c22" href="https://www.google.com/url?q=https://www.vsquareclinic.com/tips/british-botox-dysport/&amp;sa=D&amp;source=editors&amp;ust=1770956454035836&amp;usg=AOvVaw0_lE5ooTZtQ8y0DhghaT9d">Dysport (อังกฤษ)</a></span></p></td><td class="c28" colspan="1" rowspan="1"><p class="c11"><span class="c3">15,000.-</span></p></td><td class="c48" colspan="1" rowspan="1"><p class="c25"><span class="c3">โมเลกุลเล็ก กระจายตัวกว้าง เหมาะฉีดลิฟกรอบหน้า เหมาะกับกล้ามเนื้อขนาดใหญ่ ลดน่อง ลดเหงื่อ</span></p></td></tr></tbody></table></figure>`,
+                shouldConvert: false
+            }
+        ];
+
+        window.runAllTests = function () {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '';
+
+            let convertedCount = 0;
+            let notConvertedCount = 0;
+
+            testCases.forEach((testCase, index) => {
+                const output = window.convertTableToButton(testCase.input);
+                const wasConverted = !output.includes('<table');
+
+                if (wasConverted) convertedCount++;
+                else notConvertedCount++;
+
+                const testDiv = document.createElement('div');
+                testDiv.className = 'test-section';
+                testDiv.innerHTML = `
+                    <h2>Test ${index + 1}: ${testCase.name}</h2>
+                    <p>
+                        <strong>คาดหวัง:</strong> 
+                        <span class="highlight">${testCase.shouldConvert ? 'ควรแปลง' : 'ไม่ควรแปลง'}</span>
+                    </p>
+                    <p>
+                        <strong>ผลลัพธ์:</strong> 
+                        <span class="highlight" style="background: ${wasConverted === testCase.shouldConvert ? '#d4edda' : '#f8d7da'}">
+                            ${wasConverted ? '✅ แปลงแล้ว' : '❌ ไม่ได้แปลง'}
+                        </span>
+                        ${wasConverted === testCase.shouldConvert ? '✅ ถูกต้อง' : '⚠️ ไม่ตรงตามคาดหวัง'}
+                    </p>
+                    <div>
+                        <span class="label">📥 Input (Table):</span>
+                        <div class="input-box">${escapeHtml(testCase.input)}</div>
+                    </div>
+                    <div>
+                        <span class="label">📤 Output ${wasConverted ? '(Button Block)' : '(ไม่เปลี่ยนแปลง)'}:</span>
+                        <div class="output-box">${escapeHtml(output)}</div>
+                    </div>
+                `;
+                resultsDiv.appendChild(testDiv);
+            });
+
+            // Update stats
+            document.getElementById('totalTests').textContent = testCases.length;
+            document.getElementById('convertedCount').textContent = convertedCount;
+            document.getElementById('notConvertedCount').textContent = notConvertedCount;
+        };
+
+        window.clearResults = function () {
+            document.getElementById('results').innerHTML = '';
+            document.getElementById('totalTests').textContent = '0';
+            document.getElementById('convertedCount').textContent = '0';
+            document.getElementById('notConvertedCount').textContent = '0';
+        };
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+
+</html>

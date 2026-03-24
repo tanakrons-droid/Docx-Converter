@@ -231,8 +231,8 @@ function Home() {
     'vsq-injector.com',
     'vsquare.clinic',
     'drvsquare.com',
-    'en.vsquareclinic.com',
-    'cn.vsquareclinic.com',
+    'vsquareclinic.com/en/',
+    'vsquareclinic.com/cn/',
     'doctorvsquareclinic.com',
     'bestbrandclinic.com',
     'monghaclinic.com'
@@ -371,6 +371,15 @@ function Home() {
     }
   };
 
+  // Helper: ทำความสะอาดเบอร์โทรศัพท์สำหรับ tel: link (ลบขีด, ช่องว่าง, วงเล็บ)
+  const cleanPhoneNumber = (phone) => {
+    const cleaned = phone.replace(/[\s\-().]/g, '');
+    if (/^\+?\d+$/.test(cleaned)) {
+      return cleaned;
+    }
+    return null;
+  };
+
   const processLinks = (htmlString, selectedDomain) => {
     // ใช้ regex เพื่อหา <a> tags ทั้งหมดและแก้ไข
     const aTagRegex = /<a\s+([^>]*?)>/gi;
@@ -381,6 +390,45 @@ function Home() {
       if (!hrefMatch) return match; // ไม่มี href
 
       const href = hrefMatch[1];
+
+      // ===== แปลงเบอร์โทรศัพท์ที่ Word/Docs สร้าง href ผิด (http://0x-xxx-xxxx) =====
+      if (href.startsWith('http://') || href.startsWith('https://')) {
+        const urlPath = href.replace(/^https?:\/\//, '');
+        if (/^[\d\-\s().+]+$/.test(urlPath) && !/\//.test(urlPath)) {
+          const cleaned = cleanPhoneNumber(urlPath);
+          if (cleaned) {
+            // แทนที่ href และเพิ่ม type, id
+            let newAttributes = attributes.replace(/href\s*=\s*["']([^"']+)["']/i, `href="tel:${cleaned}"`);
+            // ลบ attributes เก่าที่อาจซ้ำซ้อน
+            newAttributes = newAttributes.replace(/\s*target\s*=\s*["'][^"']*["']/gi, '');
+            newAttributes = newAttributes.replace(/\s*rel\s*=\s*["'][^"']*["']/gi, '');
+            newAttributes = newAttributes.replace(/\s*type\s*=\s*["'][^"']*["']/gi, '');
+            newAttributes = newAttributes.replace(/\s*id\s*=\s*["'][^"']*["']/gi, '');
+            // เพิ่ม attributes ใหม่
+            newAttributes += ` type="tel" id="tel:${cleaned}" target="_blank" rel="noreferrer noopener"`;
+            return `<a ${newAttributes.trim()}>`;
+          }
+        }
+      }
+
+      // ===== tel: link ที่มีอยู่แล้ว — ทำความสะอาดรูปแบบและเพิ่ม attributes =====
+      if (href.startsWith('tel:')) {
+        const phoneStr = href.slice(4);
+        let newAttributes = attributes;
+        const cleaned = cleanPhoneNumber(phoneStr);
+        if (cleaned) {
+          newAttributes = newAttributes.replace(/href\s*=\s*["']([^"']+)["']/i, `href="tel:${cleaned}"`);
+        }
+        newAttributes = newAttributes.replace(/\s*target\s*=\s*["'][^"']*["']/gi, '');
+        newAttributes = newAttributes.replace(/\s*rel\s*=\s*["'][^"']*["']/gi, '');
+        newAttributes = newAttributes.replace(/\s*type\s*=\s*["'][^"']*["']/gi, '');
+        newAttributes = newAttributes.replace(/\s*id\s*=\s*["'][^"']*["']/gi, '');
+        if (cleaned) {
+          newAttributes += ` type="tel" id="tel:${cleaned}"`;
+        }
+        newAttributes += ` target="_blank" rel="noreferrer noopener"`;
+        return `<a ${newAttributes.trim()}>`;
+      }
 
       // ถ้าเป็น internal link (เริ่มด้วย /, # หรือไม่มี protocol)
       if (href.startsWith('/') || href.startsWith('#') || !href.includes('://')) {
@@ -397,17 +445,6 @@ function Home() {
           return match;
         }
 
-        // Internal domains whitelist
-        const vsquareDomains = [
-          'vsquareclinic.com', 'vsqclinic.com', 'vsquareconsult.com',
-          'vsquare.clinic', 'vsquare-under-eye.com', 'vsquareclinic.co',
-          'vsq-injector.com', 'en.vsquareclinic.com', 'cn.vsquareclinic.com',
-          'doctorvsquareclinic.com', 'drvsquare.com', 'monghaclinic.com',
-          'bestbrandclinic.com'
-        ];
-
-        const isInternal = vsquareDomains.some(d => linkDomain.includes(d));
-
         // ถ้าไม่ใช่โดเมนเดียวกัน ให้เพิ่ม target="_blank" และ rel="..."
         let newAttributes = attributes;
 
@@ -418,11 +455,21 @@ function Home() {
         // เพิ่ม target="_blank"
         newAttributes += ' target="_blank"';
 
+        // โดเมนยกเว้นที่ไม่ต้องทำ nofollow สำหรับ bestbrandclinic.com
+        const exceptionDomains = [
+          'vsquareclinic.com', 'vsqclinic.com', 'vsquareconsult.com',
+          'vsquare.clinic', 'vsquare-under-eye.com', 'vsquareclinic.co',
+          'vsq-injector.com', 'en.vsquareclinic.com', 'doctorvsquareclinic.com',
+          'cn.vsquareclinic.com'
+        ];
+        
+        const isException = exceptionDomains.some(d => linkDomain === d || linkDomain.endsWith('.' + d));
+
         // เพิ่ม rel ตามความเหมาะสม
-        if (isInternal) {
-          newAttributes += ' rel="noreferrer noopener"';
-        } else {
+        if (selectedDomainClean === 'bestbrandclinic.com' && !isException) {
           newAttributes += ' rel="noreferrer noopener nofollow"';
+        } else {
+          newAttributes += ' rel="noreferrer noopener"';
         }
 
         return `<a ${newAttributes}>`;
@@ -432,6 +479,7 @@ function Home() {
       }
     });
   };
+
 
   // ล้างฟอร์แมตแปลกๆ อัตโนมัติ เช่น span, font, style ที่มาจาก Word หรือ Docs
   const cleanHTML = (html) => {
@@ -473,6 +521,12 @@ function Home() {
     // ลบ empty tags ที่อาจเกิดจากการลบ span/font
     html = html.replace(/<p>\s*<\/p>/gi, '');
     html = html.replace(/<li>\s*<\/li>/gi, '');
+
+    // แทนที่ &nbsp; ด้วยช่องว่างปกติ
+    html = html.replace(/&nbsp;/g, ' ');
+
+    // ยุบช่องว่างที่ติดกันหลายตัวให้เหลือตัวเดียว
+    html = html.replace(/ +/g, ' ');
 
     return html;
   };
@@ -2297,33 +2351,23 @@ ${imageHTML}${paraHTML}
 <!-- /wp:kadence/column -->`;
           };
 
-          // Determine columns per row based on cell count
-          let columnsPerRow = 2; // default to 2 columns
-
-          // If we have more than 2 cells, check if we should use 3 columns per row
-          if (cellsWithContent.length > 2) {
-            // Use 3 columns per row for tables with 3+ cells
-            columnsPerRow = 3;
+          // Determine columns per row based on table structure (first row)
+          let columnsPerRow = 2;
+          const firstRow = table.querySelector('tr');
+          if (firstRow) {
+            const cols = firstRow.querySelectorAll('th, td').length;
+            if (cols > 0) columnsPerRow = cols;
           }
 
-          // Split cells into rows of 'columnsPerRow' sections each
-          const rowsOfCells = [];
-          for (let i = 0; i < cellsWithContent.length; i += columnsPerRow) {
-            rowsOfCells.push(cellsWithContent.slice(i, i + columnsPerRow));
-          }
+          // Generate all columns
+          const columnsHTML = cellsWithContent.map(makeCol).join('\n\n');
 
-          // Generate multiple rowlayouts if needed (one per row of cells)
-          const allRowLayouts = rowsOfCells.map(rowCells => {
-            const rowUniqueID = `70684_${Math.random().toString(36).slice(2, 11)}`;
-            const columnsHTML = rowCells.map(makeCol).join('\n\n');
-            const numColumns = rowCells.length;
-
-            return `<!-- wp:kadence/rowlayout {"uniqueID":"${rowUniqueID}","columns":${numColumns},"colLayout":"equal","kbVersion":2} -->
+          const rowUniqueID = `70684_${Math.random().toString(36).slice(2, 11)}`;
+          const rowLayout = `<!-- wp:kadence/rowlayout {"uniqueID":"${rowUniqueID}","columns":${columnsPerRow},"colLayout":"equal","kbVersion":2} -->
 ${columnsHTML}
 <!-- /wp:kadence/rowlayout -->`;
-          }).join('\n\n');
 
-          table.outerHTML = allRowLayouts;
+          table.outerHTML = rowLayout;
         });
 
         // For WP export: strip any remaining base64 data URIs
@@ -2345,6 +2389,11 @@ ${columnsHTML}
         htmlString = htmlString.replace(/<!--/g, '\n<!--');
         htmlString = htmlString.replace(/-->/g, '-->\n');
         htmlString = htmlString.replace(/𝗖𝗼𝗼𝗹 𝗬𝗮𝗴 𝟭𝟬𝟲𝟰/g, 'Cool Yag 1064');
+
+        // จัดการ &nbsp; และช่องว่างที่เกินมาในผลลัพธ์สุดท้าย
+        htmlString = htmlString.replace(/&nbsp;/g, ' ');
+        // eslint-disable-next-line no-control-regex
+        htmlString = htmlString.replace(/\u00A0/g, ' '); // Non-breaking space character
 
         // Apply post-processing to create row layouts (DISABLED temporarily)
         // htmlString = createRowLayoutFromContent(htmlString);
@@ -2757,12 +2806,15 @@ ${closeComment}`;
           htmlString = htmlString.trim() + '\n<!-- wp:block {"ref":170} /-->';
         }
 
-        // เพิ่ม footer ถ้าเลือก en.vsquareclinic.com
-        if (selectedWebsite === 'en.vsquareclinic.com') {
-          htmlString = htmlString.trim() + '\n<!-- wp:block {"ref":66914} /-->';
+        // เพิ่ม footer ถ้าเลือก vsquareclinic.com/en/
+        if (selectedWebsite === 'vsquareclinic.com/en/') {
+          htmlString = htmlString.trim() + '\n<!-- wp:block {"ref":123765} /-->';
         }
 
-        // เพิ่ม footer ถ้าเลือก cn.vsquareclinic.com
+        // เพิ่ม footer ถ้าเลือก vsquareclinic.com/cn/ (เว็บไซต์ภาษาจีน)
+        if (selectedWebsite === 'vsquareclinic.com/cn/') {
+          htmlString = htmlString.trim() + '\n<!-- wp:block {"ref":123765} /-->';
+        }
 
         // ล้างฟอร์แมตแปลกๆ อัตโนมัติก่อนแสดงผล (Clear Unknown Formatting)
         htmlString = cleanHTML(htmlString);

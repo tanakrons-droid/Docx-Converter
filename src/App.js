@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Route, Routes, NavLink } from 'react-router-dom';
 import './App.css';
 import './assets/styles/style.css';
@@ -13,12 +13,28 @@ import ErrorBoundary from './components/ErrorBoundary';
 import FbReelsModal from './components/reels/FbReelsModal';
 import ImageResizeCanvas from './components/ImageResizeCanvas';
 import ToolsModal from './components/ui/ToolsModal';
+import ChangelogModal from './components/ui/ChangelogModal';
 
 const App = () => {
   const [isActive, setIsActive] = useState(false);
   const [openTools, setOpenTools] = useState(false);
   const [openFbReels, setOpenFbReels] = useState(false);
   const [openImageResize, setOpenImageResize] = useState(false);
+  const [openChangelog, setOpenChangelog] = useState(false);
+
+  useEffect(() => {
+    const hasSeenUpdate = localStorage.getItem('seenUpdate_v20260320_2');
+    if (!hasSeenUpdate) {
+      setOpenChangelog(true);
+      localStorage.setItem('seenUpdate_v20260320_2', 'true');
+      
+      const timer = setTimeout(() => {
+        setOpenChangelog(false);
+      }, 5000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, []);
 
   const handleClick = () => {
     setIsActive(!isActive);
@@ -128,6 +144,28 @@ const App = () => {
                   <span className="nav-text">Tools</span>
                 </button>
               </li>
+              <li>
+                <button
+                  onClick={() => { setOpenChangelog(true); setIsActive(false); }}
+                  className={`nav-link-btn ${openChangelog ? 'active' : ''}`}
+                  style={{
+                    background: 'transparent',
+                    color: 'inherit',
+                    border: 'none',
+                    padding: 0,
+                    cursor: 'pointer',
+                    fontWeight: 'inherit',
+                    fontSize: 'inherit',
+                    fontFamily: 'inherit',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <span className="nav-icon">📢</span>
+                  <span className="nav-text">Updates</span>
+                </button>
+              </li>
             </ul>
           </nav>
         </header>
@@ -202,6 +240,12 @@ const App = () => {
           isOpen={openTools}
           onClose={() => setOpenTools(false)}
           tools={tools}
+        />
+
+        {/* Changelog Modal */}
+        <ChangelogModal
+          isOpen={openChangelog}
+          onClose={() => setOpenChangelog(false)}
         />
       </Router>
     </ErrorBoundary>

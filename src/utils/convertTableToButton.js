@@ -51,48 +51,131 @@ function shouldConvertTable(table) {
     return false; // Must have exactly 1 row
   }
 
-  const row = allRows[0];
-  const cells = Array.from(row.querySelectorAll('td, th'));
-
-  if (cells.length !== 1) {
-    return false; // Must have exactly 1 cell
-  }
-
-  const cell = cells[0];
-
-  // Check for links
-  const links = Array.from(cell.querySelectorAll('a'));
-
-  if (links.length === 0) {
-    return false; // Must have at least one link
-  }
-
-  // Check if cell contains ONLY link(s) and whitespace (no other significant content)
-  // Clone cell and remove all links to see what's left
-  const cellClone = cell.cloneNode(true);
-  const linksInClone = cellClone.querySelectorAll('a');
-  linksInClone.forEach(link => link.remove());
-
-  // After removing links, check if there's any meaningful content left
-  // Use normalizeWhitespace to handle &nbsp; and other whitespace characters (human error prevention)
-  const remainingText = normalizeWhitespace(cellClone.textContent);
-
-  // If there's other content besides links, don't convert
-  if (remainingText.length > 0) {
+  // Safety check: Avoid converting data tables with headers (e.g. Brand, Price, Highlight)
+  const tableText = (table.textContent || '').trim();
+  if (/(ราคา|ยี่ห้อ|จุดเด่น|Brand|Price|Highlight)/i.test(tableText)) {
     return false;
   }
 
-  return true;
+  const row = allRows[0];
+  const cells = Array.from(row.querySelectorAll('td, th'));
+
+  if (cells.length === 0) {
+    return false; // Must have at least 1 cell
+  }
+
+  // Check every cell
+  // All cells must meet the criteria: contain links and no meaningful text
+  return cells.every(cell => {
+    // Check for links
+    const links = Array.from(cell.querySelectorAll('a'));
+    if (links.length === 0) {
+      return false; // Must have at least one link
+    }
+
+    // Check if cell contains ONLY link(s) and whitespace
+    const cellClone = cell.cloneNode(true);
+    const linksInClone = cellClone.querySelectorAll('a');
+    linksInClone.forEach(link => link.remove());
+
+    const remainingText = normalizeWhitespace(cellClone.textContent);
+
+    // If there's other content besides links, don't convert this cell
+    // meaning the whole table shouldn't be converted
+    return remainingText.length === 0;
+  });
 }
 
 // Helper function to create button block
 function createButtonBlock(table) {
   const row = table.querySelector('tr');
-  const cell = row.querySelector('td, th');
-  const links = Array.from(cell.querySelectorAll('a'));
+  const cells = Array.from(row.querySelectorAll('td, th'));
 
+  if (cells.length === 0) return null;
+
+  // Single cell case (Standard Button)
+  if (cells.length === 1) {
+    return createSingleButtonBlock(cells[0]);
+  }
+
+  // Multi-cell case (Kadence Row Layout)
+  return createKadenceRowBlock(cells);
+}
+
+// Helper to create a single button block from a cell (logic extracted from original createButtonBlock)
+function createSingleButtonBlock(cell) {
+  const links = Array.from(cell.querySelectorAll('a'));
   if (links.length === 0) return null;
 
+  // Process links and text
+  const buttonData = processLinksForButton(links);
+  if (!buttonData) return null;
+
+  const { buttonHref, rel, buttonText, hasMultipleLines } = buttonData;
+
+  // Create the Gutenberg Button Block
+  // If no href, create button without href attribute
+  let linkAttributes = 'class="wp-block-button__link has-text-align-center wp-element-button"';
+
+  if (buttonHref) {
+    linkAttributes += ` href="${escapeHtml(buttonHref)}" target="_blank" rel="${rel}"`;
+  }
+
+  // Check if we should add metadata (BestBrandClinic pattern)
+  const isBestBrand = buttonText.includes('คลิกดูข้อมูลคลินิก');
+  const metadata = isBestBrand
+    ? ', "metadata":{"categories":[],"patternName":"core/block/3229","name":"คลิกดูข้อมูลคลินิก"}'
+    : '';
+
+  // Add remove-arrow class to wp-block-buttons if button has multiple lines
+  const buttonsClass = hasMultipleLines ? 'wp-block-buttons remove-arrow' : 'wp-block-buttons';
+  const buttonsAttr = hasMultipleLines
+    ? `{"className":"remove-arrow","layout":{"type":"flex","justifyContent":"center"}${metadata}}`
+    : `{"layout":{"type":"flex","justifyContent":"center"}${metadata}}`;
+
+  const buttonBlock = `<!-- wp:buttons ${buttonsAttr} -->
+<div class="${buttonsClass}"><!-- wp:button {"textAlign":"center"} -->
+<div class="wp-block-button"><a ${linkAttributes}>${buttonText}</a></div>
+<!-- /wp:button --></div>
+<!-- /wp:buttons -->`;
+
+  return buttonBlock;
+}
+
+// Helper to create Kadence Row Layout for multiple columns
+function createKadenceRowBlock(cells) {
+  const columnCount = cells.length;
+  const uniqueId = generateUniqueId();
+
+  // Build columns
+  const columnsHtml = cells.map((cell, index) => {
+    // Each cell becomes a button block inside a column
+    const buttonBlock = createSingleButtonBlock(cell);
+    if (!buttonBlock) return ''; // Should not happen if shouldConvertTable passed
+
+    // Extract inner content of the button block (remove wrapping wp:buttons comments for cleaner nesting? 
+    // No, Kadence Column expects blocks inside. wp:buttons is a block. So keep it.)
+    // However, we might want to adjust the button layout style for columns if needed. 
+    // For now, use standard button block.
+    // Kadence Column Structure
+    return `<!-- wp:kadence/column {"id":${index + 1},"borderWidth":["","","",""],"uniqueID":"${uniqueId}_col${index}","kbVersion":2} -->
+<div class="wp-block-kadence-column kadence-column${uniqueId}_col${index}"><div class="kt-inside-inner-col">${buttonBlock}</div></div>
+<!-- /wp:kadence/column -->`;
+  }).join('\n\n');
+
+  // Kadence Row Layout Structure
+  return `<!-- wp:kadence/rowlayout {"uniqueID":"${uniqueId}","columns":${columnCount},"colLayout":"equal","firstColumnWidth":0,"secondColumnWidth":0,"thirdColumnWidth":0,"fourthColumnWidth":0,"fifthColumnWidth":0,"sixthColumnWidth":0,"kbVersion":2} -->
+${columnsHtml}
+<!-- /wp:kadence/rowlayout -->`;
+}
+
+// Helper to generate a short unique ID (approximate)
+function generateUniqueId() {
+  return Math.random().toString(36).substring(2, 8) + '_' + Math.random().toString(36).substring(2, 8);
+}
+
+// Helper to process links and return button data
+function processLinksForButton(links) {
   // Helper to clean Google Redirect URLs
   const cleanGoogleUrl = (href) => {
     if (!href) return '';
@@ -113,6 +196,8 @@ function createButtonBlock(table) {
     href: cleanGoogleUrl(link.getAttribute('href') || ''),
     text: extractTextContent(link)
   }));
+
+  if (processedLinks.length === 0) return null;
 
   // Determine main href (use first link)
   let buttonHref = processedLinks[0].href;
@@ -155,33 +240,7 @@ function createButtonBlock(table) {
   // Check if button text has multiple lines (contains <br>)
   const hasMultipleLines = /<br\s*\/?>/i.test(buttonText);
 
-  // Create the Gutenberg Button Block
-  // If no href, create button without href attribute
-  let linkAttributes = 'class="wp-block-button__link has-text-align-center wp-element-button"';
-
-  if (buttonHref) {
-    linkAttributes += ` href="${escapeHtml(buttonHref)}" target="_blank" rel="${rel}"`;
-  }
-
-  // Check if we should add metadata (BestBrandClinic pattern)
-  const isBestBrand = buttonText.includes('คลิกดูข้อมูลคลินิก');
-  const metadata = isBestBrand
-    ? ', "metadata":{"categories":[],"patternName":"core/block/3229","name":"คลิกดูข้อมูลคลินิก"}'
-    : '';
-
-  // Add remove-arrow class to wp-block-buttons if button has multiple lines
-  const buttonsClass = hasMultipleLines ? 'wp-block-buttons remove-arrow' : 'wp-block-buttons';
-  const buttonsAttr = hasMultipleLines
-    ? `{"className":"remove-arrow","layout":{"type":"flex","justifyContent":"center"}${metadata}}`
-    : `{"layout":{"type":"flex","justifyContent":"center"}${metadata}}`;
-
-  const buttonBlock = `<!-- wp:buttons ${buttonsAttr} -->
-<div class="${buttonsClass}"><!-- wp:button {"textAlign":"center"} -->
-<div class="wp-block-button"><a ${linkAttributes}>${buttonText}</a></div>
-<!-- /wp:button --></div>
-<!-- /wp:buttons -->`;
-
-  return buttonBlock;
+  return { buttonHref, rel, buttonText, hasMultipleLines };
 }
 
 // Helper function to extract text content from link (remove <u>, <strong>, <span> tags)

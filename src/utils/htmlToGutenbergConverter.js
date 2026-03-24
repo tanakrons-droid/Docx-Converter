@@ -1,3 +1,4 @@
+/* eslint-disable no-useless-escape, no-unused-vars, no-use-before-define */
 /**
  * HTML to Gutenberg Converter - Browser Version
  * Ported from html-to-gutenberg/web/src/utils/converter.ts
@@ -15,8 +16,8 @@ export const SUPPORTED_WEBSITES = [
   'vsq-injector.com',
   'vsquare.clinic',
   'drvsquare.com',
-  'en.vsquareclinic.com',
-  'cn.vsquareclinic.com',
+  'vsquareclinic.com/en/',
+  'vsquareclinic.com/cn/',
   'doctorvsquareclinic.com',
   'bestbrandclinic.com',
   'monghaclinic.com'
@@ -924,14 +925,7 @@ export function cleanHTML(html, forbiddenTags = [], cssMap = {}) {
       $el.removeAttr('style');
     }
 
-    // Add target="_blank" for external links
-    if (href && !$el.attr('target')) {
-      const isExternal = !internalDomainsClean.some(domain => href.includes(domain));
-      if (isExternal) {
-        $el.attr('target', '_blank');
-        $el.attr('rel', 'noreferrer noopener');
-      }
-    }
+    // Add target="_blank" for external links are now handled in convertToGutenberg
   });
 
   // Remove <u> tags that wrap <a> tags (underline on links is not needed)
@@ -1256,6 +1250,11 @@ export function cleanHTML(html, forbiddenTags = [], cssMap = {}) {
   // Clean up whitespace - only trim the final result
   let htmlContent = $('body').length > 0 ? $('body').html() : $.html();
   htmlContent = htmlContent ? htmlContent.trim() : '';
+
+  // แทนที่ &nbsp; ด้วยช่องว่างปกติ
+  htmlContent = htmlContent.replace(/&nbsp;/g, ' ');
+  // ยุบช่องว่างที่ติดกันหลายตัวให้เหลือตัวเดียว
+  htmlContent = htmlContent.replace(/ +/g, ' ');
 
   return { html: htmlContent || '', removed };
 }
@@ -1695,11 +1694,11 @@ function createKadenceRowLayout(images) {
     const col2Id = generateKadenceUniqueId();
     const img1 = images[0];
     const img2 = images[1];
-    return `<!-- wp:kadence/rowlayout {"uniqueID":"${uniqueId}","colLayout":"equal","firstColumnWidth":0,"secondColumnWidth":0,"thirdColumnWidth":0,"fourthColumnWidth":0,"fifthColumnWidth":0,"sixthColumnWidth":0,"kbVersion":2} -->
+    return `<!-- wp:kadence/rowlayout {"uniqueID":"","colLayout":"equal","firstColumnWidth":0,"secondColumnWidth":0,"thirdColumnWidth":0,"fourthColumnWidth":0,"fifthColumnWidth":0,"sixthColumnWidth":0,"kbVersion":2} -->
 
-<!-- wp:kadence/column {"borderWidth":["","","",""],"uniqueID":"${col1Id}","kbVersion":2} -->
+<!-- wp:kadence/column {"borderWidth":["","","",""],"uniqueID":"","kbVersion":2} -->
 
-<div class="wp-block-kadence-column kadence-column${col1Id}"><div class="kt-inside-inner-col"><!-- wp:image -->
+<div class="wp-block-kadence-column"><div class="kt-inside-inner-col"><!-- wp:image -->
 
 <figure class="wp-block-image"><img src="" alt="${img1.alt || ''}"/></figure>
 
@@ -1707,9 +1706,9 @@ function createKadenceRowLayout(images) {
 
 <!-- /wp:kadence/column -->
 
-<!-- wp:kadence/column {"id":2,"borderWidth":["","","",""],"uniqueID":"${col2Id}","kbVersion":2} -->
+<!-- wp:kadence/column {"id":2,"borderWidth":["","","",""],"uniqueID":"","kbVersion":2} -->
 
-<div class="wp-block-kadence-column kadence-column${col2Id}"><div class="kt-inside-inner-col"><!-- wp:image -->
+<div class="wp-block-kadence-column"><div class="kt-inside-inner-col"><!-- wp:image -->
 
 <figure class="wp-block-image"><img src="" alt="${img2.alt || ''}"/></figure>
 
@@ -1728,9 +1727,9 @@ function createKadenceRowLayout(images) {
     const colId = generateKadenceUniqueId();
     const idAttr = index === 0 ? '' : `"id":${index + 1},`;
 
-    innerBlocks += `<!-- wp:kadence/column {${idAttr}"borderWidth":["","","",""],"uniqueID":"${colId}","kbVersion":2} -->
+    innerBlocks += `<!-- wp:kadence/column {${idAttr}"borderWidth":["","","",""],"uniqueID":"","kbVersion":2} -->
 
-<div class="wp-block-kadence-column kadence-column${colId}"><div class="kt-inside-inner-col"><!-- wp:image -->
+<div class="wp-block-kadence-column"><div class="kt-inside-inner-col"><!-- wp:image -->
 
 <figure class="wp-block-image"><img src="" alt="${img.alt || ''}"/></figure>
 
@@ -1741,7 +1740,7 @@ function createKadenceRowLayout(images) {
 `;
   });
 
-  return `<!-- wp:kadence/rowlayout {"uniqueID":"${uniqueId}","columns":${columns},"colLayout":"equal","firstColumnWidth":0,"secondColumnWidth":0,"thirdColumnWidth":0,"fourthColumnWidth":0,"fifthColumnWidth":0,"sixthColumnWidth":0,"kbVersion":2} -->
+  return `<!-- wp:kadence/rowlayout {"uniqueID":"","columns":${columns},"colLayout":"equal","firstColumnWidth":0,"secondColumnWidth":0,"thirdColumnWidth":0,"fourthColumnWidth":0,"fifthColumnWidth":0,"sixthColumnWidth":0,"kbVersion":2} -->
 
 ${innerBlocks}
 <!-- /wp:kadence/rowlayout -->`;
@@ -1963,6 +1962,16 @@ function syncTOCLinksWithHeadings($listElement, $) {
         $link.attr('href', `#${newHash}`);
       }
     }
+
+    // Clean up multiple consecutive &nbsp; entities in link text
+    let linkHtml = $link.html();
+    if (linkHtml) {
+      // Remove all trailing &nbsp; entities
+      linkHtml = linkHtml.replace(/(&nbsp;|\u00a0)+$/g, '');
+      // Replace multiple consecutive &nbsp; with single space
+      linkHtml = linkHtml.replace(/(&nbsp;|\u00a0){2,}/g, ' ');
+      $link.html(linkHtml);
+    }
   });
 }
 
@@ -1974,6 +1983,8 @@ function isExplicitCentered(style, className, alignAttr = '') {
   const { align } = getAlignmentFromStyle(style, className, alignAttr);
   return align === 'center';
 }
+
+
 
 /**
  * Check if text contains special heading patterns
@@ -2084,7 +2095,7 @@ function convertPhoneNumbers(htmlString) {
  * Convert HTML structure to Gutenberg blocks using cheerio
  * This is the core conversion logic
  */
-function convertToGutenberg(html, website) {
+function convertToGutenberg(html, website, enableNofollow = true) {
   const $ = cheerio.load(html, { decodeEntities: false });
   const blocks = [];
   let blockCount = 0;
@@ -2556,15 +2567,13 @@ function convertToGutenberg(html, website) {
     const tagName = element.tagName?.toLowerCase();
     const $el = $(element);
 
-    // Helper to replace years 2020-2029 with [current_year] in element text
+    // Helper to replace years 2024-2029 with [current_year] in element text
     const replaceYearsInElement = ($element) => {
-      // Process text nodes directly to avoid breaking HTML attributes
+      // Process text nodes directly to avoid breaking HTML attributes like href in <a>
       $element.find('*').addBack().contents().each((_, n) => {
         if (n.type === 'text' && n.data) {
-          // Replace 2020-2029 with [current_year]
-          // Be careful not to replace things that might be part of attributes if we were using .html()
-          // But here we are modifying text node data directly
-          n.data = n.data.replace(/\b202\d\b/g, '[current_year]');
+          // Replace 2024-2029 with [current_year]
+          n.data = n.data.replace(/\b202[4-9]\b/g, '[current_year]');
         }
       });
     };
@@ -3699,8 +3708,6 @@ function convertToGutenberg(html, website) {
           'www.bestbrandclinic.com'
         ];
 
-        const normalizedHref = href => href.replace(/^www\./, '');
-
         finalContent = finalContent.replace(/<a\s+([^>]*?)>/gi, (match, attributes) => {
           // Remove style attribute
           let cleanAttrs = attributes.replace(/style="[^"]*"/gi, '');
@@ -3709,13 +3716,43 @@ function convertToGutenberg(html, website) {
           const hrefMatch = cleanAttrs.match(/href=["']([^"']+)["']/i);
           if (hrefMatch) {
             const href = hrefMatch[1];
+            
+            // ถ้าเป็น internal link (เริ่มด้วย /, # หรือไม่มี protocol) ไม่ต้องแก้ไข
+            if (!href.startsWith('/') && !href.startsWith('#') && href.includes('://')) {
+              try {
+                const url = new URL(href);
+                const linkDomain = url.hostname.toLowerCase().replace('www.', '');
+                const selectedDomainClean = (website || '').toLowerCase().replace('www.', '');
 
-            // Check if link is external (not in internal domains list)
-            const isExternal = !internalDomains.some(domain => normalizedHref(href).includes(domain));
+                // ถ้าไม่ใช่โดเมนเดียวกัน (ลิ้งนอก)
+                if (linkDomain !== selectedDomainClean) {
+                  // ลบ target และ rel เดิม (ถ้ามี)
+                  cleanAttrs = cleanAttrs.replace(/\s*target\s*=\s*["'][^"']*["']/gi, '');
+                  cleanAttrs = cleanAttrs.replace(/\s*rel\s*=\s*["'][^"']*["']/gi, '');
 
-            // Add target="_blank" and rel attributes for external links
-            if (isExternal && !cleanAttrs.includes('target=')) {
-              cleanAttrs += ' target="_blank" rel="noreferrer noopener"';
+                  // เพิ่ม target="_blank"
+                  cleanAttrs += ' target="_blank"';
+
+                  // โดเมนยกเว้นที่ไม่ต้องทำ nofollow สำหรับ bestbrandclinic.com
+                  const exceptionDomains = [
+                    'vsquareclinic.com', 'vsqclinic.com', 'vsquareconsult.com',
+                    'vsquare.clinic', 'vsquare-under-eye.com', 'vsquareclinic.co',
+                    'vsq-injector.com', 'en.vsquareclinic.com', 'doctorvsquareclinic.com',
+                    'cn.vsquareclinic.com'
+                  ];
+                  
+                  const isException = exceptionDomains.some(d => linkDomain === d || linkDomain.endsWith('.' + d));
+
+                  // เพิ่ม nofollow ถ้าถูกเปิดใช้งาน (และยกเว้นโดเมนใน exceptionDomains)
+                  if (enableNofollow && !isException) {
+                    cleanAttrs += ' rel="noreferrer noopener nofollow"';
+                  } else {
+                    cleanAttrs += ' rel="noreferrer noopener"';
+                  }
+                }
+              } catch (e) {
+                // Ignore invalid URLs
+              }
             }
           }
 
@@ -4227,6 +4264,8 @@ function convertToGutenberg(html, website) {
       }
 
       case 'blockquote': {
+        // Apply year replacement to blockquotes
+        replaceYearsInElement($el);
         const content = $el.html() || '';
         const { align, className } = getExplicitAlignment($el);
         const attrs = {};
@@ -4254,7 +4293,7 @@ function convertToGutenberg(html, website) {
       case 'table': {
         // Check if table contains "Note" or internal instructions - remove it completely
         const tableText = $el.text().trim();
-        const tableHtml = $el.html() || '';
+        const tableContent = $el.html() || '';
 
         // Convert clinic info table to button for specific domains
         const normalizedWebsite = website ? website.replace(/^www\./, '') : '';
@@ -4305,7 +4344,7 @@ function convertToGutenberg(html, website) {
                 buttonInternalDomains.some(domain => normalizedHref.includes(domain));
 
               targetAttr = ' target="_blank"';
-              if (!isInternalLink) {
+              if (!isInternalLink && enableNofollow) {
                 relAttr = ' rel="noreferrer noopener nofollow"';
               } else {
                 relAttr = ' rel="noreferrer noopener"';
@@ -4325,6 +4364,9 @@ function convertToGutenberg(html, website) {
               `<!-- /wp:buttons -->`;
           }
         }
+
+        // Apply year replacement to tables
+        replaceYearsInElement($el);
 
         // ===== NEW: Check for table with multiple image cells (2x2, 2x3, etc.) =====
         // Convert to Kadence Row Layout with multiple columns
@@ -4414,13 +4456,13 @@ function convertToGutenberg(html, website) {
                 cellContent = `<!-- wp:paragraph --><p>${cell.html.replace(/<[^>]+>/g, '').trim()}</p><!-- /wp:paragraph -->`;
               }
 
-              innerBlocks += `<!-- wp:kadence/column {${idAttr}"borderWidth":["","","",""],"uniqueID":"${colId}","kbVersion":2} -->
-<div class="wp-block-kadence-column kadence-column${colId}"><div class="kt-inside-inner-col">${cellContent}</div></div>
+              innerBlocks += `<!-- wp:kadence/column {${idAttr}"borderWidth":["","","",""],"uniqueID":"","kbVersion":2} -->
+<div class="wp-block-kadence-column"><div class="kt-inside-inner-col">${cellContent}</div></div>
 <!-- /wp:kadence/column -->\n\n`;
             });
 
             blockCount++;
-            return `<!-- wp:kadence/rowlayout {"uniqueID":"${uniqueId}","columns":${totalCells},"mobileLayout":"equal","tabletLayout":"equal","colLayout":"equal","kbVersion":2} -->
+            return `<!-- wp:kadence/rowlayout {"uniqueID":"","columns":${totalCells},"mobileLayout":"equal","tabletLayout":"equal","colLayout":"equal","kbVersion":2} -->
 ${innerBlocks.trim()}\n<!-- /wp:kadence/rowlayout -->`;
           }
 
@@ -4493,8 +4535,8 @@ ${innerBlocks.trim()}\n<!-- /wp:kadence/rowlayout -->`;
                   // Build alt attribute (escape quotes for safety)
                   const escapedAlt = (img.alt || '').replace(/"/g, '&quot;');
 
-                  innerBlocks += `<!-- wp:kadence/column {${idAttr}"borderWidth":["","","",""],"uniqueID":"${colId}","kbVersion":2} -->
-<div class="wp-block-kadence-column kadence-column${colId}"><div class="kt-inside-inner-col"><!-- wp:image -->
+                  innerBlocks += `<!-- wp:kadence/column {${idAttr}"borderWidth":["","","",""],"uniqueID":"","kbVersion":2} -->
+<div class="wp-block-kadence-column"><div class="kt-inside-inner-col"><!-- wp:image -->
 <figure class="wp-block-image"><img alt="${escapedAlt}"/></figure>
 <!-- /wp:image --></div></div>
 <!-- /wp:kadence/column -->
@@ -4502,7 +4544,7 @@ ${innerBlocks.trim()}\n<!-- /wp:kadence/rowlayout -->`;
 `;
                 });
 
-                rowLayouts.push(`<!-- wp:kadence/rowlayout {"uniqueID":"${uniqueId}","columns":${columns},"colLayout":"${colLayout}","kbVersion":2} -->
+                rowLayouts.push(`<!-- wp:kadence/rowlayout {"uniqueID":"","columns":${columns},"colLayout":"${colLayout}","kbVersion":2} -->
 ${innerBlocks}<!-- /wp:kadence/rowlayout -->`);
               }
             });
@@ -4524,8 +4566,8 @@ ${innerBlocks}<!-- /wp:kadence/rowlayout -->`);
         // Check if table starts with Google Docs comment markers [a], [b], etc.
         const hasCommentMarker = /^\[([a-z0-9]+)\]/i.test(tableText);
 
-        // Check if table contains promotion URLs (common in internal notes)
-        const hasPromotionUrl = /promotion\/picosure-pro-laser|promotion\//i.test(tableHtml);
+        // Check if table contains specific internal promotion URLs
+        const hasPromotionUrl = /promotion\/picosure-pro-laser/i.test(tableContent);
 
         // If table contains Note or internal instructions, don't convert it at all
         if (hasNote || hasInternalNote || hasPromotionUrl || hasCommentMarker) {
@@ -4541,8 +4583,17 @@ ${innerBlocks}<!-- /wp:kadence/rowlayout -->`);
             const cell1Links = $cells.eq(0).find('a');
             const cell2Links = $cells.eq(1).find('a');
 
-            // Both cells have links
-            if (cell1Links.length > 0 && cell2Links.length > 0) {
+            // Both cells have links — but only convert if cells contain ONLY link content (no body text)
+            // If cells have substantial non-link text, this is a data table, not a button table
+            const cellHasBodyText = ($cell) => {
+              const $clone = $('<div>').html($cell.html() || '');
+              $clone.find('a').remove();
+              return $clone.text().replace(/\s+/g, ' ').trim().length > 10;
+            };
+            const isButtonOnlyTable = cell1Links.length > 0 && cell2Links.length > 0 &&
+              !cellHasBodyText($cells.eq(0)) && !cellHasBodyText($cells.eq(1));
+
+            if (isButtonOnlyTable) {
               // Extract button content for each cell
               const extractButtonContent = ($cell) => {
                 const paragraphs = $cell.find('p');
@@ -4590,13 +4641,13 @@ ${innerBlocks}<!-- /wp:kadence/rowlayout -->`);
               };
 
               blockCount++;
-              return `<!-- wp:kadence/rowlayout {"uniqueID":"${rowUniqueID}","colLayout":"equal","firstColumnWidth":0,"secondColumnWidth":0,"thirdColumnWidth":0,"fourthColumnWidth":0,"fifthColumnWidth":0,"sixthColumnWidth":0,"kbVersion":2} -->
-<!-- wp:kadence/column {"borderWidth":["","","",""],"uniqueID":"${col1UniqueID}","kbVersion":2} -->
-<div class="wp-block-kadence-column kadence-column${col1UniqueID}"><div class="kt-inside-inner-col">${buildButtonBlock(cell1Content)}</div></div>
+              return `<!-- wp:kadence/rowlayout {"uniqueID":"","colLayout":"equal","firstColumnWidth":0,"secondColumnWidth":0,"thirdColumnWidth":0,"fourthColumnWidth":0,"fifthColumnWidth":0,"sixthColumnWidth":0,"kbVersion":2} -->
+<!-- wp:kadence/column {"borderWidth":["","","",""],"uniqueID":"","kbVersion":2} -->
+<div class="wp-block-kadence-column"><div class="kt-inside-inner-col">${buildButtonBlock(cell1Content)}</div></div>
 <!-- /wp:kadence/column -->
 
-<!-- wp:kadence/column {"borderWidth":["","","",""],"uniqueID":"${col2UniqueID}","kbVersion":2} -->
-<div class="wp-block-kadence-column kadence-column${col2UniqueID}"><div class="kt-inside-inner-col">${buildButtonBlock(cell2Content)}</div></div>
+<!-- wp:kadence/column {"borderWidth":["","","",""],"uniqueID":"","kbVersion":2} -->
+<div class="wp-block-kadence-column"><div class="kt-inside-inner-col">${buildButtonBlock(cell2Content)}</div></div>
 <!-- /wp:kadence/column -->
 <!-- /wp:kadence/rowlayout -->`;
             }
@@ -4690,8 +4741,37 @@ ${innerBlocks}<!-- /wp:kadence/rowlayout -->`);
         };
 
         // Check if table contains a link (button-style table)
+        // BUT first: determine if this is actually a data/comparison table (not a button table)
+        // A table is considered a "data table" if:
+        //   1. It has more than 1 row (content rows)
+        //   2. It has more than 2 columns
+        //   3. Multiple cells that each contain meaningful non-link text
+        const isDataTable = () => {
+          const $rows = $el.find('tr');
+          if ($rows.length > 1) return true; // Multiple rows = data table
+
+          // Single-row: check column count
+          const $firstRowCells = $rows.first().find('td, th');
+          if ($firstRowCells.length > 2) return true; // 3+ columns = data table
+
+          // Single-row, 1-2 columns: check if any cell has substantial non-link text
+          let cellsWithBodyText = 0;
+          $firstRowCells.each((_, cell) => {
+            const $cell = $(cell);
+            // Clone cell and remove all links to see if there is remaining text
+            const $clone = $('<div>').html($cell.html() || '');
+            $clone.find('a').remove();
+            const remainingText = $clone.text().replace(/\s+/g, ' ').trim();
+            if (remainingText.length > 10) cellsWithBodyText++;
+          });
+          // If more than 1 cell has body text, this is a data table
+          if (cellsWithBodyText > 1) return true;
+
+          return false;
+        };
+
         const $tableLink = $el.find('a').first();
-        if ($tableLink.length > 0) {
+        if ($tableLink.length > 0 && !isDataTable()) {
           const href = $tableLink.attr('href') || '#';
           const linkText = $tableLink.text().trim() || '';
 
@@ -4885,7 +4965,7 @@ ${innerBlocks}<!-- /wp:kadence/rowlayout -->`);
             $lineDom.find('p, div').each((_, el) => {
               const $el = $(el);
               if ($el.next().length > 0) {
-                $el.replaceWith($el.html() + '<br>');
+                $el.replaceWith($el.html() + '<br />');
               } else {
                 $el.replaceWith($el.html());
               }
@@ -4910,7 +4990,7 @@ ${innerBlocks}<!-- /wp:kadence/rowlayout -->`);
             return $lineDom.html().trim();
           }).filter(line => line.length > 0);
 
-          let result = resultArr.join('<br>\n');
+          let result = resultArr.join('<br />\n');
           return result.trim();
         };
 
@@ -4961,7 +5041,12 @@ ${innerBlocks}<!-- /wp:kadence/rowlayout -->`);
 
               // Header cells
               const $th = $('<th>');
-              if (alignClass) $th.addClass(alignClass);
+              if (alignClass) {
+                $th.addClass(alignClass);
+                // Also add data-align attribute for Gutenberg
+                const alignValue = alignClass.replace('has-text-align-', '');
+                $th.attr('data-align', alignValue);
+              }
               if (colspan !== '1') $th.attr('colspan', colspan);
               if (rowspan !== '1') $th.attr('rowspan', rowspan);
               if (parseInt(rowspan, 10) > 1) {
@@ -5006,6 +5091,9 @@ ${innerBlocks}<!-- /wp:kadence/rowlayout -->`);
               // Add alignment class if found
               if (alignClass) {
                 $td.addClass(alignClass);
+                // Also add data-align attribute for Gutenberg
+                const alignValue = alignClass.replace('has-text-align-', '');
+                $td.attr('data-align', alignValue);
               }
 
               // Add vertical-align: middle if rowspan > 1
@@ -5032,6 +5120,10 @@ ${innerBlocks}<!-- /wp:kadence/rowlayout -->`);
         // Add has-fixed-layout class to table
         $el.addClass('has-fixed-layout');
 
+        // Normalize all <br> tags to <br /> for Gutenberg compatibility
+        const tableInnerHtml = $el.html();
+        $el.html(tableInnerHtml.replace(/<br\s*>/gi, '<br />'));
+
         // Clean up remaining attributes
         $el.find('tr').removeAttr('style').removeAttr('class');
         $tbody.removeAttr('style').removeAttr('class');
@@ -5046,7 +5138,11 @@ ${innerBlocks}<!-- /wp:kadence/rowlayout -->`);
 
         blockCount++;
         // Return table with alignment and hasFixedLayout attributes
-        return `<!-- wp:table ${JSON.stringify(tableAttrs)} -->\n<figure class="${figureClass}">${$el.prop('outerHTML')}</figure>\n<!-- /wp:table -->`;
+        // Ensure proper Gutenberg block serialization format
+        let tableOutput = $el.prop('outerHTML');
+        // Final cleanup: ensure all br tags are self-closing
+        tableOutput = tableOutput.replace(/<br>/gi, '<br />');
+        return `<!-- wp:table ${JSON.stringify(tableAttrs)} -->\n<figure class="${figureClass}">${tableOutput}</figure>\n<!-- /wp:table -->`;
       }
 
       case 'div': {
@@ -5059,6 +5155,8 @@ ${innerBlocks}<!-- /wp:kadence/rowlayout -->`);
       }
 
       case 'a': {
+        // Apply year replacement to links
+        replaceYearsInElement($el);
         // Only create paragraph block for standalone links
         const href = $el.attr('href') || '#';
         const content = $el.html() || '';
@@ -5288,7 +5386,19 @@ export function applyPolicies(html, config = defaultPolicyConfig) {
  * Based on Home.jsx processLinks function
  * Skip links inside listmenu (TOC - สารบัญ) and REMOVE target="_blank" from them
  */
-function processLinks(htmlString, selectedDomain) {
+/**
+ * ทำความสะอาดเบอร์โทรศัพท์สำหรับ tel: link
+ * ลบอักขระพิเศษทั้งหมด (ขีด, ช่องว่าง, วงเล็บ) เก็บเฉพาะตัวเลขและ +
+ */
+function cleanPhoneNumber(phone) {
+  const cleaned = phone.replace(/[\s\-().]/g, '');
+  if (/^\+?\d+$/.test(cleaned)) {
+    return cleaned;
+  }
+  return null;
+}
+
+function processLinks(htmlString, selectedDomain, enableNofollow = true) {
   if (!selectedDomain) return htmlString;
 
   // Use cheerio to properly handle listmenu exclusion
@@ -5312,6 +5422,40 @@ function processLinks(htmlString, selectedDomain) {
         const $inner = $(inner);
         $inner.replaceWith($inner.html() || '');
       });
+      return;
+    }
+
+    // ===== แปลงเบอร์โทรศัพท์ที่ Word/Docs สร้าง href ผิด (http://0x-xxx-xxxx) =====
+    // ตัวอย่าง: href="http://02-714-9555" → href="tel:027149555" type="tel" id="tel:027149555" target="_blank" rel="noreferrer noopener"
+    if (href.startsWith('http://') || href.startsWith('https://')) {
+      // ลบโปรโตคอลและ trailing slash (ถ้ามี) ออกก่อนเช็ค
+      const urlPath = href.replace(/^https?:\/\//, '').replace(/\/$/, '');
+      
+      // ตรวจสอบว่าหลังจากลบสแลชออกแล้ว ข้อความที่เหลือดูเหมือนเบอร์โทรหรือไม่
+      if (/^[+\d\-\s().]+$/.test(urlPath)) {
+        const cleaned = cleanPhoneNumber(urlPath);
+        if (cleaned) {
+          $a.attr('href', 'tel:' + cleaned);
+          $a.attr('type', 'tel');
+          $a.attr('id', 'tel:' + cleaned);
+          $a.attr('target', '_blank');
+          $a.attr('rel', 'noreferrer noopener');
+          return;
+        }
+      }
+    }
+
+    // ===== tel: link ที่มีอยู่แล้ว — ทำความสะอาดรูปแบบและเพิ่ม attributes =====
+    if (href.startsWith('tel:')) {
+      const phoneStr = href.slice(4).replace(/\/$/, '');
+      const cleaned = cleanPhoneNumber(phoneStr);
+      if (cleaned) {
+        $a.attr('href', 'tel:' + cleaned);
+        $a.attr('id', 'tel:' + cleaned);
+      }
+      $a.attr('type', 'tel');
+      $a.attr('target', '_blank');
+      $a.attr('rel', 'noreferrer noopener');
       return;
     }
 
@@ -5352,7 +5496,7 @@ function processLinks(htmlString, selectedDomain) {
       $a.removeAttr('target').removeAttr('rel');
       $a.attr('target', '_blank');
 
-      if (isVsquareLink) {
+      if (isVsquareLink || enableNofollow === false) {
         $a.attr('rel', 'noreferrer noopener');
       } else {
         $a.attr('rel', 'noreferrer noopener nofollow');
@@ -5444,8 +5588,8 @@ function getWebsiteFooter(website) {
     'vsquare-under-eye.com': '\n<!-- wp:block {"ref":8916} /-->',
     'vsquareclinic.co': '\n<!-- wp:block {"ref":148} /-->',
     'vsq-injector.com': '\n<!-- wp:block {"ref":170} /-->',
-    'en.vsquareclinic.com': '\n<!-- wp:separator -->\n<hr class="wp-block-separator has-alpha-channel-opacity">\n<!-- /wp:separator -->\n\n<!-- wp:block {"ref":66914} /-->',
-    'cn.vsquareclinic.com': '\n<!-- wp:block {"ref":16702} /-->'
+    'vsquareclinic.com/en/': '\n<!-- wp:block {"ref":123765} /-->',
+    'vsquareclinic.com/cn/': '\n<!-- wp:block {"ref":123765} /-->'
   };
 
   // Normalize website by removing www. prefix
@@ -5466,7 +5610,8 @@ function shouldRemoveTrailingSeparator(website) {
     'drvsquare.com',
     'doctorvsquareclinic.com',
     'bestbrandclinic.com',
-    'monghaclinic.com'
+    'monghaclinic.com',
+    'vsquareclinic.com/cn/'
   ];
   // Normalize website by removing www. prefix
   const normalizedWebsite = website ? website.replace(/^www\./, '') : '';
@@ -5513,17 +5658,18 @@ export function convert(inputHtml, options = {}) {
     warnings.push(...policyResult.warnings);
 
     // Step 5: Convert to Gutenberg
-    let { html: gutenbergHtml, blockCount } = convertToGutenberg(processedHtml, options.website);
+    const enableNofollow = options.enableNofollow !== false; // Default to true
+    let { html: gutenbergHtml, blockCount } = convertToGutenberg(processedHtml, options.website, enableNofollow);
 
     // Step 5b: Convert phone numbers before external-link processing
     gutenbergHtml = convertPhoneNumbers(gutenbergHtml);
 
-    // Step 5c: Replace [current_year] with actual year (skip references section)
-    gutenbergHtml = replaceCurrentYear(gutenbergHtml);
+    // Step 5c: Skip Replace [current_year] with actual year to keep shortcode in output
+    // gutenbergHtml = replaceCurrentYear(gutenbergHtml);
 
     // Step 6: Process external links (if website is specified)
     if (options.website) {
-      gutenbergHtml = processLinks(gutenbergHtml, options.website);
+      gutenbergHtml = processLinks(gutenbergHtml, options.website, enableNofollow);
     }
 
     // Step 7: Remove trailing separator for specific websites
@@ -5546,8 +5692,8 @@ export function convert(inputHtml, options = {}) {
       );
     }
 
-    // Step 7c: For bestbrandclinic.com and monghaclinic.com, special processing
-    const isSpecialDomain = options.website === 'bestbrandclinic.com' || options.website === 'monghaclinic.com';
+    // Step 7c: For bestbrandclinic.com, monghaclinic.com, and drvsquare.com, special processing
+    const isSpecialDomain = options.website === 'bestbrandclinic.com' || options.website === 'monghaclinic.com' || options.website === 'drvsquare.com';
     if (isSpecialDomain) {
       // Remove separator that appears after H2 "สรุป" (summary) heading with class subtext-gtb
       // This regex handles intermediate paragraph blocks between the heading and the separator.
@@ -5566,12 +5712,6 @@ export function convert(inputHtml, options = {}) {
     // Step 8: Add website-specific footer
     if (options.website) {
       let footer = getWebsiteFooter(options.website);
-
-      // Special condition for cn.vsquareclinic.com: add separator if no references found in content
-      const normalizedWebsite = options.website.replace(/^www\./, "");
-      if (normalizedWebsite === "cn.vsquareclinic.com" && !gutenbergHtml.includes('class="references"')) {
-        footer = "\n<!-- wp:separator -->\n<hr class=\"wp-block-separator has-alpha-channel-opacity\">\n<!-- /wp:separator -->\n" + footer;
-      }
 
       if (footer) {
         gutenbergHtml = gutenbergHtml.trim() + footer;
@@ -5611,6 +5751,10 @@ export function convert(inputHtml, options = {}) {
       .replace(/\s*rowspan="1"\s*/gi, ' ')
       .replace(/<(td|th)\s+/gi, '<$1 ')  // Normalize spacing after td/th
       .replace(/ {2,}/g, ' ')  // Remove double spaces (preserve newlines)
+      // Normalize &nbsp; and Unicode non-breaking spaces
+      .replace(/&nbsp;/g, ' ')
+      // eslint-disable-next-line no-control-regex
+      .replace(/\u00A0/g, ' ')
       .trim();
 
     // Step 10: Remove separator immediately before footer ref block for specific websites (FINAL step)
