@@ -1910,10 +1910,16 @@ function Home() {
           };
           const totalItems = countItems(ul);
 
-          // Check if this is a dashed list (items starting with "- ")
-          const isDashed = Array.from(ul.children).some(li => {
+          const hasDashedMarkerStyle = (styleValue = '') => {
+            const normalized = styleValue.toLowerCase().replace(/\s+/g, ' ');
+            return /(?:^|;)\s*content\s*:\s*["']\s*-\s*["']/.test(normalized) ||
+              /(?:^|;)\s*content\s*:\s*-\s*(?:;|$)/.test(normalized);
+          };
+
+          const isDashed = hasDashedMarkerStyle(ul.getAttribute('style') || '') || Array.from(ul.children).some(li => {
             const text = li.textContent.trim();
-            return text.startsWith('- ');
+            const liStyle = li.getAttribute('style') || '';
+            return text.startsWith('- ') || hasDashedMarkerStyle(liStyle);
           });
 
           // ตรวจสอบว่ามี class="correctlist" อยู่แล้วหรือไม่
@@ -1969,7 +1975,12 @@ function Home() {
             const aTag = li.querySelector('a');
 
             if (nestedUl) {
-              const listSubItems = convertSubListToGutenberg(nestedUl, tag, classPrev, isDashed, hasCorrectlist);
+              const nestedIsDashed = hasDashedMarkerStyle(nestedUl.getAttribute('style') || '') || Array.from(nestedUl.children).some(nestedLi => {
+                const nestedText = nestedLi.textContent.trim();
+                const nestedStyle = nestedLi.getAttribute('style') || '';
+                return nestedText.startsWith('- ') || hasDashedMarkerStyle(nestedStyle);
+              });
+              const listSubItems = convertSubListToGutenberg(nestedUl, tag, classPrev, nestedIsDashed, hasCorrectlist);
               nestedUl.remove();
               // Remove "- " prefix if it's a dashed list
               let liContent = li.innerHTML;

@@ -105,14 +105,34 @@ export default function ChangelogModal({ isOpen, onClose }) {
               background: '#10b981',
               boxShadow: '0 0 0 4px rgba(16, 185, 129, 0.2)'
             }} />
-            <h3 style={{ margin: '0 0 8px 0', fontSize: '18px', color: '#f8fafc' }}>อัพเดตแก้ไขการสร้างบล็อค Kadence 🛠️</h3>
+            <h3 style={{ margin: '0 0 8px 0', fontSize: '18px', color: '#f8fafc' }}>สรุปอัปเดตล่าสุด 🛠️</h3>
             <div style={{ fontSize: '13px', color: '#10b981', marginBottom: '12px', fontWeight: '500' }}>
               🕒 20 มีนาคม 2026 เวลา 10:34 น.
             </div>
-            <ul style={{ margin: 0, paddingLeft: '18px', color: '#cbd5e1', lineHeight: '1.6', fontSize: '15px' }}>
-              <li style={{ marginBottom: '6px' }}><strong>ยกเลิกการสุ่มรหัส uniqueID:</strong> ปล่อยค่าให้ <code>uniqueID</code> ว่างเปล่า เพื่อให้ระบบ WordPress คอยจัดการเติมให้อัตโนมัติ ป้องกันการทับซ้อน</li>
-              <li><strong>ปรับรูปแบบ class CSS:</strong> เอา class สุ่ม <code>kadence-column...</code> ที่ต่อท้าย HTML ออกไป เหลือแค่ <code>wp-block-kadence-column</code> ตามรูปแบบปกติของ WordPress</li>
-            </ul>
+            <p style={{ margin: 0, color: '#cbd5e1', lineHeight: '1.7', fontSize: '15px' }}>
+              ปรับการสร้างบล็อค Kadence ให้ WordPress จัดการ <code>uniqueID</code> เอง, แก้ YouTube caption ให้แปลง <code>[current_year]</code> ได้ถูกต้อง และลบ class สุ่มท้าย HTML เพื่อให้ผลลัพธ์สะอาดและเสถียรกว่าเดิม
+            </p>
+          </div>
+
+          {/* Item 2 */}
+          <div style={{ position: 'relative', marginTop: '20px' }}>
+            <div style={{
+              position: 'absolute',
+              left: '-26px',
+              top: '4px',
+              width: '10px',
+              height: '10px',
+              borderRadius: '50%',
+              background: '#3b82f6',
+              boxShadow: '0 0 0 4px rgba(59, 130, 246, 0.2)'
+            }} />
+            <h3 style={{ margin: '0 0 8px 0', fontSize: '18px', color: '#f8fafc' }}>อัปเดตวันนี้ 📌</h3>
+            <div style={{ fontSize: '13px', color: '#3b82f6', marginBottom: '12px', fontWeight: '500' }}>
+              🕒 25 มีนาคม 2026 เวลา 12:20 น.
+            </div>
+            <p style={{ margin: 0, color: '#cbd5e1', lineHeight: '1.7', fontSize: '15px' }}>
+              เพิ่มการแสดงผล YouTube caption และให้ข้อความปีอัปเดตแปลงเป็น <code>[current_year]</code> อัตโนมัติในผลลัพธ์ที่แปลงแล้ว
+            </p>
           </div>
         </div>
       </div>

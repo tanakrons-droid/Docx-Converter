@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Route, Routes, NavLink } from 'react-router-dom';
 import './App.css';
 import './assets/styles/style.css';
-import Home from './components/Home';
 import Html from './components/Html';
 import HtmlToGutenberg from './components/HtmlToGutenberg';
 
@@ -23,6 +22,8 @@ const App = () => {
   const [openChangelog, setOpenChangelog] = useState(false);
 
   useEffect(() => {
+    // Automatic popup disabled as per request
+    /*
     const hasSeenUpdate = localStorage.getItem('seenUpdate_v20260320_2');
     if (!hasSeenUpdate) {
       setOpenChangelog(true);
@@ -34,6 +35,7 @@ const App = () => {
       
       return () => clearTimeout(timer);
     }
+    */
   }, []);
 
   const handleClick = () => {
@@ -85,22 +87,17 @@ const App = () => {
           </div>
           <nav className={`header-nav ${isActive ? 'active' : ''}`}>
             <ul className="nav-list">
+
               <li>
                 <NavLink to="/" className={({ isActive }) => isActive ? 'active' : ''} onClick={() => setIsActive(!isActive)}>
-                  <span className="nav-icon">📄</span>
-                  <span className="nav-text">Gutenberg</span>
+                  <span className="nav-icon">🔄</span>
+                  <span className="nav-text">HTML to GB</span>
                 </NavLink>
               </li>
               <li>
                 <NavLink to="/html" className={({ isActive }) => isActive ? 'active' : ''} onClick={() => setIsActive(!isActive)}>
                   <span className="nav-icon">🌐</span>
                   <span className="nav-text">HTML</span>
-                </NavLink>
-              </li>
-              <li>
-                <NavLink to="/html-to-gutenberg" className={({ isActive }) => isActive ? 'active' : ''} onClick={() => setIsActive(!isActive)}>
-                  <span className="nav-icon">🔄</span>
-                  <span className="nav-text">HTML to GB</span>
                 </NavLink>
               </li>
 
@@ -171,9 +168,9 @@ const App = () => {
         </header>
         <main className="main">
           <Routes>
-            <Route path="/" element={<Home />} />
+            <Route path="/" element={<HtmlToGutenberg />} />
             <Route path="/html" element={<Html />} />
-            <Route path="/html-to-gutenberg" element={<HtmlToGutenberg />} />
+
 
             <Route path="/bbcode-v1" element={<BBCodeV1 />} />
             <Route path="/content" element={<Content />} />

@@ -3858,16 +3858,24 @@ function convertToGutenberg(html, website, enableNofollow = true) {
         };
         // Note: totalItems count is calculated but not used in current implementation
 
-        // Check if this is a dashed list (items starting with "- ")
-        let isDashed = false;
-        $el.children('li').each((_, li) => {
-          const $li = $(li);
-          const text = $li.text().trim();
-          if (text.startsWith('- ')) {
-            isDashed = true;
-            return false; // break
-          }
-        });
+        const hasDashedMarkerStyle = (styleValue = '') => {
+          const normalized = styleValue.toLowerCase().replace(/\s+/g, ' ');
+          return /(?:^|;)\s*content\s*:\s*["']\s*-\s*["']/.test(normalized) ||
+            /(?:^|;)\s*content\s*:\s*-\s*(?:;|$)/.test(normalized);
+        };
+
+        let isDashed = hasDashedMarkerStyle($el.attr('style') || '');
+        if (!isDashed) {
+          $el.children('li').each((_, li) => {
+            const $li = $(li);
+            const text = $li.text().trim();
+            const liStyle = $li.attr('style') || '';
+            if (text.startsWith('- ') || hasDashedMarkerStyle(liStyle)) {
+              isDashed = true;
+              return false;
+            }
+          });
+        }
 
         // Check if has correctlist class
         const hasCorrectlist = $el.attr('class')?.includes('correctlist') || false;
@@ -5664,8 +5672,8 @@ export function convert(inputHtml, options = {}) {
     // Step 5b: Convert phone numbers before external-link processing
     gutenbergHtml = convertPhoneNumbers(gutenbergHtml);
 
-    // Step 5c: Skip Replace [current_year] with actual year to keep shortcode in output
-    // gutenbergHtml = replaceCurrentYear(gutenbergHtml);
+    // Step 5c: Replace [current_year] with actual year in final output
+    gutenbergHtml = replaceCurrentYear(gutenbergHtml);
 
     // Step 6: Process external links (if website is specified)
     if (options.website) {
