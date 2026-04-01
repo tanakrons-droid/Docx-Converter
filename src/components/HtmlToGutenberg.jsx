@@ -22,7 +22,7 @@ function HtmlToGutenberg() {
 
   // Conversion report state
   const [conversionReport, setConversionReport] = useState(null);
-  const [enableNofollow, setEnableNofollow] = useState(true);
+  const [enableNofollow, setEnableNofollow] = useState(false);
 
   // Close dropdown when clicking outside
   useEffect(() => {

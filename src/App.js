@@ -22,20 +22,11 @@ const App = () => {
   const [openChangelog, setOpenChangelog] = useState(false);
 
   useEffect(() => {
-    // Automatic popup disabled as per request
-    /*
-    const hasSeenUpdate = localStorage.getItem('seenUpdate_v20260320_2');
-    if (!hasSeenUpdate) {
+    // Popup shows on every refresh for verification
+    const timer = setTimeout(() => {
       setOpenChangelog(true);
-      localStorage.setItem('seenUpdate_v20260320_2', 'true');
-      
-      const timer = setTimeout(() => {
-        setOpenChangelog(false);
-      }, 5000);
-      
-      return () => clearTimeout(timer);
-    }
-    */
+    }, 800);
+    return () => clearTimeout(timer);
   }, []);
 
   const handleClick = () => {

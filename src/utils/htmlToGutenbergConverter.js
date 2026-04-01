@@ -2567,13 +2567,14 @@ function convertToGutenberg(html, website, enableNofollow = true) {
     const tagName = element.tagName?.toLowerCase();
     const $el = $(element);
 
-    // Helper to replace years 2024-2029 with [current_year] in element text
+    // Helper to replace years 2024-2030 with [current_year] in element text
     const replaceYearsInElement = ($element) => {
       // Process text nodes directly to avoid breaking HTML attributes like href in <a>
       $element.find('*').addBack().contents().each((_, n) => {
         if (n.type === 'text' && n.data) {
-          // Replace 2024-2029 with [current_year]
-          n.data = n.data.replace(/\b202[4-9]\b/g, '[current_year]');
+          // Replace 2024-2030 with [current_year]
+          // Using a more robust regex that handle Thai characters better than simple \b
+          n.data = n.data.replace(/(?<!\d)(202[4-9]|2030)(?!\d)/g, '[current_year]');
         }
       });
     };
@@ -2674,7 +2675,11 @@ function convertToGutenberg(html, website, enableNofollow = true) {
         }
 
         // Check if this is a References heading, set flag
-        if (/^อ้างอิง|^เอกสารอ้างอิง|^แหล่งข้อมูลอ้างอิง|^参考/.test(textOnly) || textOnly.toLowerCase().startsWith('reference')) {
+        // EXCLUDE TOC: If this is a link or in listmenu, don't trigger references section
+        const isActuallyInTOC = $el.find('a').length > 0 || $el.closest('.listmenu').length > 0 || $el.hasClass('listmenu');
+        const looksLikeReferences = /^อ้างอิง|^เอกสารอ้างอิง|^แหล่งข้อมูลอ้างอิง|^参考/.test(textOnly) || textOnly.toLowerCase().startsWith('reference');
+        
+        if (looksLikeReferences && !isActuallyInTOC) {
           isInReferencesSection = true;
         }
         // Reset if entering another major section or any other normal heading
@@ -3072,9 +3077,13 @@ function convertToGutenberg(html, website, enableNofollow = true) {
         }
 
         // Check for "อ้างอิง" or "เอกสารอ้างอิง" paragraph - add separator above
-        if (textContentNormalized.startsWith('อ้างอิง') || textContentNormalized.startsWith('เอกสารอ้างอิง') ||
+        // EXCLUDE TOC: If this is a link or in listmenu, don't trigger references section
+        const isActuallyInTOC = $el.find('a').length > 0 || $el.closest('.listmenu').length > 0 || $el.hasClass('listmenu');
+        const looksLikeReferences = textContentNormalized.startsWith('อ้างอิง') || textContentNormalized.startsWith('เอกสารอ้างอิง') ||
           textContentNormalized.startsWith('เอกสาร อ้างอิง') || textContentNormalized.startsWith('แหล่งข้อมูลอ้างอิง') || textContentNormalized.startsWith('参考') ||
-          textContentNormalized.toLowerCase().startsWith('reference')) {
+          textContentNormalized.toLowerCase().startsWith('reference');
+
+        if (looksLikeReferences && !isActuallyInTOC) {
           isInReferencesSection = true;
           blockCount++;
           // Always add separator above references (unless disabled)
@@ -5534,10 +5543,14 @@ function replaceCurrentYear(htmlString) {
     const tagName = el.tagName?.toLowerCase();
 
     // Check if this is a references heading or paragraph
-    if ((tagName === 'h2' || tagName === 'h3' || tagName === 'p') &&
+    // EXCLUDE TOC: If this is a link or in listmenu, don't trigger references section
+    const isActuallyInTOC = $el.find('a').length > 0 || $el.closest('.listmenu').length > 0 || $el.hasClass('listmenu');
+    const looksLikeReferences = (tagName === 'h2' || tagName === 'h3' || tagName === 'p') &&
       (text.startsWith('อ้างอิง') || text.startsWith('เอกสารอ้างอิง') ||
         text.startsWith('เอกสาร อ้างอิง') || text.startsWith('แหล่งข้อมูลอ้างอิง') ||
-        text.startsWith('参考') || text.toLowerCase().includes('reference'))) {
+        text.startsWith('参考') || text.toLowerCase().includes('reference'));
+
+    if (looksLikeReferences && !isActuallyInTOC) {
       inReferencesSection = true;
       $el.attr('data-skip-year-replace', 'true');
     }
@@ -5672,8 +5685,9 @@ export function convert(inputHtml, options = {}) {
     // Step 5b: Convert phone numbers before external-link processing
     gutenbergHtml = convertPhoneNumbers(gutenbergHtml);
 
-    // Step 5c: Replace [current_year] with actual year in final output
-    gutenbergHtml = replaceCurrentYear(gutenbergHtml);
+    // Step 5c: We keep [current_year] as a placeholder in the final output 
+    // for dynamic rendering in WordPress. We no longer replace it with the actual year.
+    // gutenbergHtml = replaceCurrentYear(gutenbergHtml);
 
     // Step 6: Process external links (if website is specified)
     if (options.website) {
@@ -5781,6 +5795,14 @@ export function convert(inputHtml, options = {}) {
       if (normalizedSite === 'vsquareclinic.co') {
         gutenbergHtml = gutenbergHtml.replace(
           /<!-- wp:separator[^>]*-->\s*<hr[^>]*>\s*<!-- \/wp:separator -->\s*(?=<!-- wp:block \{"ref":148\} \/-->)/gi,
+          ''
+        );
+      }
+
+      // vsqclinic.com - remove separator before ref:16702
+      if (normalizedSite === 'vsqclinic.com') {
+        gutenbergHtml = gutenbergHtml.replace(
+          /<!-- wp:separator[^>]*-->\s*<hr[^>]*>\s*<!-- \/wp:separator -->\s*(?=<!-- wp:block \{"ref":16702\} \/-->)/gi,
           ''
         );
       }

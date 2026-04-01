@@ -54,7 +54,11 @@ export default function ChangelogModal({ isOpen, onClose }) {
               alignItems: 'center',
               gap: '12px'
             }}>
-              <span style={{ animation: 'bounceIcon 2s infinite' }}>📢</span>
+              <span style={{ 
+                animation: 'bounceIcon 2s infinite',
+                display: 'inline-block',
+                WebkitTextFillColor: 'initial'
+              }}>📢</span>
               รายงานการอัพเดต
             </h2>
             <p style={{ margin: '4px 0 0 0', fontSize: '14px', color: '#94a3b8' }}>
@@ -93,8 +97,8 @@ export default function ChangelogModal({ isOpen, onClose }) {
         </div>
 
         <div className="changelog-timeline" style={{ position: 'relative', paddingLeft: '20px', borderLeft: '2px solid rgba(255, 255, 255, 0.1)' }}>
-          {/* Item 1 */}
-          <div style={{ position: 'relative', marginBottom: '8px' }}>
+          {/* Today's Update - April 1, 2026 */}
+          <div style={{ position: 'relative', marginBottom: '24px' }}>
             <div style={{
               position: 'absolute',
               left: '-26px',
@@ -105,17 +109,20 @@ export default function ChangelogModal({ isOpen, onClose }) {
               background: '#10b981',
               boxShadow: '0 0 0 4px rgba(16, 185, 129, 0.2)'
             }} />
-            <h3 style={{ margin: '0 0 8px 0', fontSize: '18px', color: '#f8fafc' }}>สรุปอัปเดตล่าสุด 🛠️</h3>
+            <h3 style={{ margin: '0 0 8px 0', fontSize: '18px', color: '#f8fafc' }}>อัปเดตระบบล่าสุด 🚀</h3>
             <div style={{ fontSize: '13px', color: '#10b981', marginBottom: '12px', fontWeight: '500' }}>
-              🕒 20 มีนาคม 2026 เวลา 10:34 น.
+              🕒 1 เมษายน 2026 เวลา 16:40 น.
             </div>
-            <p style={{ margin: 0, color: '#cbd5e1', lineHeight: '1.7', fontSize: '15px' }}>
-              ปรับการสร้างบล็อค Kadence ให้ WordPress จัดการ <code>uniqueID</code> เอง, แก้ YouTube caption ให้แปลง <code>[current_year]</code> ได้ถูกต้อง และลบ class สุ่มท้าย HTML เพื่อให้ผลลัพธ์สะอาดและเสถียรกว่าเดิม
-            </p>
+            <div style={{ margin: 0, color: '#cbd5e1', lineHeight: '1.7', fontSize: '15px' }}>
+              <div style={{ marginBottom: '8px' }}>1. <strong>Nofollow External Links:</strong> ตั้งค่าปิดใช้งานเริ่มต้น (Off) โดยผู้ใช้สามารถกดเปิดเองได้ผ่านปุ่มสวิตช์</div>
+              <div style={{ marginBottom: '8px' }}>2. <strong>Current Year:</strong> แก้ไขบั๊กการแปลงปี <code>[current_year]</code> ในสารบัญและเนื้อหาให้ทำงานถูกต้อง (เว้นส่วนเอกสารอ้างอิง)</div>
+              <div style={{ marginBottom: '8px' }}>3. <strong>Auto-Update:</strong> เปิดใช้งานระบบแจ้งเตือนอัปเดตอัตโนมัติเมื่อเข้าสู่ระบบครั้งแรก</div>
+              <div style={{ marginBottom: '8px' }}>4. <strong>Footer Separator:</strong> เพิ่ม <code>vsqclinic.com</code> เข้าในรายการเว็บไซต์ที่ไม่แสดงเส้นคั่น (Separator) เหนือบล็อก Footer</div>
+            </div>
           </div>
 
-          {/* Item 2 */}
-          <div style={{ position: 'relative', marginTop: '20px' }}>
+          {/* Previous Update 1 */}
+          <div style={{ position: 'relative', opacity: '0.8', marginTop: '20px' }}>
             <div style={{
               position: 'absolute',
               left: '-26px',
@@ -124,15 +131,36 @@ export default function ChangelogModal({ isOpen, onClose }) {
               height: '10px',
               borderRadius: '50%',
               background: '#3b82f6',
-              boxShadow: '0 0 0 4px rgba(59, 130, 246, 0.2)'
+              boxShadow: '0 0 0 4px rgba(59, 130, 246, 0.1)'
             }} />
-            <h3 style={{ margin: '0 0 8px 0', fontSize: '18px', color: '#f8fafc' }}>อัปเดตวันนี้ 📌</h3>
-            <div style={{ fontSize: '13px', color: '#3b82f6', marginBottom: '12px', fontWeight: '500' }}>
+            <h3 style={{ margin: '0 0 8px 0', fontSize: '16px', color: '#f8fafc' }}>อัปเดตก่อนหน้า (25 มีนาคม) 📌</h3>
+            <div style={{ fontSize: '12px', color: '#3b82f6', marginBottom: '8px' }}>
               🕒 25 มีนาคม 2026 เวลา 12:20 น.
             </div>
-            <p style={{ margin: 0, color: '#cbd5e1', lineHeight: '1.7', fontSize: '15px' }}>
-              เพิ่มการแสดงผล YouTube caption และให้ข้อความปีอัปเดตแปลงเป็น <code>[current_year]</code> อัตโนมัติในผลลัพธ์ที่แปลงแล้ว
-            </p>
+            <div style={{ margin: 0, color: '#94a3b8', lineHeight: '1.6', fontSize: '14px' }}>
+              1. เพิ่มการแสดงผล YouTube caption และให้ข้อความปีอัปเดตแปลงเป็น <code>[current_year]</code> อัตโนมัติ
+            </div>
+          </div>
+
+          {/* Previous Update 2 */}
+          <div style={{ position: 'relative', opacity: '0.6', marginTop: '20px' }}>
+            <div style={{
+              position: 'absolute',
+              left: '-26px',
+              top: '4px',
+              width: '10px',
+              height: '10px',
+              borderRadius: '50%',
+              background: '#64748b',
+              boxShadow: '0 0 0 4px rgba(100, 116, 139, 0.1)'
+            }} />
+            <h3 style={{ margin: '0 0 8px 0', fontSize: '15px', color: '#f8fafc' }}>อัปเดตก่อนหน้า (20 มีนาคม) 🛠️</h3>
+            <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '8px' }}>
+              🕒 20 มีนาคม 2026 เวลา 10:34 น.
+            </div>
+            <div style={{ margin: 0, color: '#94a3b8', lineHeight: '1.6', fontSize: '13px' }}>
+              1. ปรับการสร้างบล็อก Kadence, แก้ไข YouTube caption และทำความสะอาดโค้ด HTML ผลลัพธ์
+            </div>
           </div>
         </div>
       </div>
